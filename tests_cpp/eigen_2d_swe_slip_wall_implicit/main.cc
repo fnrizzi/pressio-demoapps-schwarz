@@ -1,7 +1,7 @@
 
 #include "pressio/ode_steppers_implicit.hpp"
 #include "pressio/ode_advancers.hpp"
-#include "pressiodemoapps/euler2d.hpp"
+#include "pressiodemoapps/swe2d.hpp"
 #include "../observer.hpp"
 
 int main()
@@ -20,8 +20,8 @@ int main()
   constexpr auto order   = pda::InviscidFluxReconstruction::FirstOrder;
 #endif
 
-  const auto probId  = pda::Euler2d::Riemann;
-  auto appObj = pda::create_problem_eigen(meshObj, probId, order, 2);
+  const auto probId  = pda::Swe2d::SlipWall;
+  auto appObj = pda::create_problem_eigen(meshObj, probId, order);
   using app_t = decltype(appObj);
   using state_t = typename app_t::state_type;
   using jacob_t = typename app_t::jacobian_type;
@@ -37,10 +37,10 @@ int main()
   auto NonLinSolver = pressio::create_newton_solver(stepperObj, linSolverObj);
   NonLinSolver.setStopTolerance(1e-5);
 
-  FomObserver<state_t> Obs("riemann2d_solution.bin", 2);
+  FomObserver<state_t> Obs("swe_slipWall2d_solution.bin", 10);
 
-  const double tf = 1.0;
-  const double dt = 0.005;
+  const double tf = 10;
+  const double dt = 0.01;
   const auto Nsteps = pressio::ode::StepCount(tf/dt);
   pressio::ode::advance_n_steps(stepperObj, state, 0., dt, Nsteps, Obs, NonLinSolver);
 
