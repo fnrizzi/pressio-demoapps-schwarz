@@ -17,7 +17,7 @@ int main()
   // +++++ USER INPUTS +++++
   string meshRoot = "./mesh";
   string obsRoot = "riemann2d_solution";
-  const int obsFreq = 1;
+  const int obsFreq = 2;
 
   // problem definition
   const auto probId = pda::Euler2d::Riemann;
@@ -25,8 +25,8 @@ int main()
   const auto scheme = pode::StepScheme::CrankNicolson;
 
   // time stepping
-  const int numSteps = 1000;
-  vector<double> dt(1, 0.001);
+  const double tf = 1.0;
+  vector<double> dt(1, 0.005);
   const int convergeStepMax = 10;
   const double abs_err_tol = 1e-11;
   const double rel_err_tol = 1e-11;
@@ -45,11 +45,12 @@ int main()
   using obs_t = FomObserver<state_t>;
   vector<obs_t> obsVec(decomp.ndomains);
   for (int domIdx = 0; domIdx < decomp.ndomains; ++domIdx) {
-    obsVec[domIdx] = obs_t(obsRoot + "_" + to_string(domIdx) + ".bin", 1);
+    obsVec[domIdx] = obs_t(obsRoot + "_" + to_string(domIdx) + ".bin", obsFreq);
     obsVec[domIdx](::pressio::ode::StepCount(0), 0.0, decomp.stateVec[domIdx]);
   }
 
   // solve
+  const int numSteps = tf / decomp.dtMax;
   double time = 0.0;
   for (int outerStep = 1; outerStep <= numSteps; ++outerStep)
   {
@@ -67,11 +68,9 @@ int main()
     time += decomp.dtMax;
 
     // output observer
-    if (outerStep % obsFreq == 0) {
-      const auto stepWrap = pode::StepCount(outerStep);
-      for (int domIdx = 0; domIdx < decomp.ndomains; ++domIdx) {
-        obsVec[domIdx](stepWrap, time, decomp.stateVec[domIdx]);
-      }
+    const auto stepWrap = pode::StepCount(outerStep);
+    for (int domIdx = 0; domIdx < decomp.ndomains; ++domIdx) {
+      obsVec[domIdx](stepWrap, time, decomp.stateVec[domIdx]);
     }
 
   }

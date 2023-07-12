@@ -4,8 +4,10 @@ set(exename  ${testname}_exe)
 
 #configure_file(../plot.py plot.py COPYONLY)
 configure_file(../compare.py compare.py COPYONLY)
-#configure_file(p_gold.txt p_gold.txt COPYONLY)
-#configure_file(rho_gold.txt rho_gold.txt COPYONLY)
+foreach(DOM RANGE 3)
+  configure_file(p_gold_${DOM}.txt p_gold_${DOM}.txt COPYONLY)
+  configure_file(rho_gold_${DOM}.txt rho_gold_${DOM}.txt COPYONLY)
+endforeach()
 
 add_executable(${exename} ${CMAKE_CURRENT_SOURCE_DIR}/../main.cc)
 

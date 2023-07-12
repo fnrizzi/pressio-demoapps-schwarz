@@ -1,6 +1,5 @@
 
 import numpy as np
-import sys, os
 
 gamma = (5.+2.)/5.
 
@@ -9,8 +8,8 @@ def computePressure(rho, u, v, E):
   return (gamma - 1.) * (E - rho*vel*0.5)
 
 if __name__== "__main__":
-  nx=20
-  ny=20
+  nx=50
+  ny=50
   fomTotDofs = nx*ny*4
 
   D = np.fromfile("riemann2d_solution.bin")
@@ -26,13 +25,13 @@ if __name__== "__main__":
   np.savetxt("p.txt", p)
 
   goldR = np.loadtxt("rho_gold.txt")
-  assert(np.allclose(rho.shape, goldR.shape))
+  assert(rho.shape == goldR.shape)
   assert(np.isnan(rho).all() == False)
   assert(np.isnan(goldR).all() == False)
   assert(np.allclose(rho, goldR,rtol=1e-10, atol=1e-12))
 
   goldP = np.loadtxt("p_gold.txt")
-  assert(np.allclose(p.shape, goldP.shape))
+  assert(p.shape == goldP.shape)
   assert(np.isnan(p).all() == False)
   assert(np.isnan(goldP).all() == False)
   assert(np.allclose(p, goldP,rtol=1e-10, atol=1e-12))
