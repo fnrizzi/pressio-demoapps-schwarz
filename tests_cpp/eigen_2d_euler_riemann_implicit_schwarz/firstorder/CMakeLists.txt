@@ -2,7 +2,7 @@
 set(testname eigen_2d_riemann_firstorder_implicit_schwarz)
 set(exename  ${testname}_exe)
 
-#configure_file(../plot.py plot.py COPYONLY)
+configure_file(../plot.py plot.py COPYONLY)
 configure_file(../compare.py compare.py COPYONLY)
 foreach(DOM RANGE 3)
   configure_file(p_gold_${DOM}.txt p_gold_${DOM}.txt COPYONLY)

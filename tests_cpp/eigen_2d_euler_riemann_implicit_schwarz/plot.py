@@ -32,15 +32,19 @@ elif varplot == 3:
     skiplevels = 2
     contourbounds = [0.25, 3.75]
 
+# TODO: modify monolithic directory to correct stencil order
 plot_contours(
     varplot,
-    meshdirs="./",
-    datadirs="./",
+    meshdirs=["../../eigen_2d_euler_riemann_implicit/firstorder", "./mesh"],
+    datadirs=["../../eigen_2d_euler_riemann_implicit/firstorder", "./"],
     nvars=4,
     dataroot="riemann2d_solution",
+    plotlabels=["Monolithic", "Schwarz, 2x2"],
     nlevels=nlevels,
     skiplevels=skiplevels,
     contourbounds=contourbounds,
     plotskip=2,
     varlabel=varlabel,
+    figdim_base=[8, 9],
+    vertical=False,
 )

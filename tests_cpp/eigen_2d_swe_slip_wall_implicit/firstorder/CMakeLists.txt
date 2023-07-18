@@ -2,7 +2,7 @@
 set(testname eigen_2d_swe_slip_wall_firstorder_implicit)
 set(exename  ${testname}_exe)
 
-#configure_file(../plot.py plot.py COPYONLY)
+configure_file(../plot.py plot.py COPYONLY)
 configure_file(../compare.py compare.py COPYONLY)
 configure_file(h_gold.txt h_gold.txt COPYONLY)
 
