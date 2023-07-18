@@ -19,4 +19,4 @@ ctest -j4
 
 # Postprocessing
 
-Utilities for visualization, PROM preparation, and error measurement are in development.
+Python utilities for data extraction, visualization, PROM preparation, and error measurement can be found in the ```python/``` directory. Refer to the README there for instructions on installing and using the associated local package.
