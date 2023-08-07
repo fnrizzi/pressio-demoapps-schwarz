@@ -47,9 +47,9 @@ class SchwarzDecomp
             init_subdomains(probId, order, scheme, meshRoot, icflag);
 
             // set up communication patterns
-            // bcStencilSize = (pda::reconstructionTypeToStencilSize(order) - 1) / 2;
-            // exchDomIdVec = calc_neighbor_dims();
-            // check_mesh_compat(); // a little error checking
+            bcStencilSize = (pda::reconstructionTypeToStencilSize(order) - 1) / 2;
+            exchDomIdVec = calc_neighbor_dims();
+            check_mesh_compat(); // a little error checking
             // exchGraphVec = calc_exch_graph(bcStencilSize, exchDomIdVec);
             // stateBcVec = init_schw_bc_state();
 
@@ -161,213 +161,209 @@ class SchwarzDecomp
             const int icflag)
         {
 
-        // TODO: generalize for 1D, 3D
+            // TODO: generalize for 1D, 3D
 
-        // physical boundaries
-        auto bcLeftPhys  = getPhysBCs(probId, pda::impl::GhostRelativeLocation::Left);
-        auto bcRightPhys = getPhysBCs(probId, pda::impl::GhostRelativeLocation::Right);
-        auto bcFrontPhys = getPhysBCs(probId, pda::impl::GhostRelativeLocation::Front);
-        auto bcBackPhys  = getPhysBCs(probId, pda::impl::GhostRelativeLocation::Back);
+            // physical boundaries
+            auto bcLeftPhys  = getPhysBCs(probId, pda::impl::GhostRelativeLocation::Left);
+            auto bcRightPhys = getPhysBCs(probId, pda::impl::GhostRelativeLocation::Right);
+            auto bcFrontPhys = getPhysBCs(probId, pda::impl::GhostRelativeLocation::Front);
+            auto bcBackPhys  = getPhysBCs(probId, pda::impl::GhostRelativeLocation::Back);
 
-        // get app type to template Subdomain
-        using app_t = decltype(
-            pda::create_problem_eigen(
-                declval<mesh_t>(), probId, order,
-                BCFunctor(bcLeftPhys), BCFunctor(bcRightPhys),
-                BCFunctor(bcFrontPhys), BCFunctor(bcBackPhys),
-                icflag)
-        );
-
-        int i, j;
-        BCType bcLeft, bcRight, bcFront, bcBack;
-
-        // determine boundary conditions for each subdomain, specify app type
-        for (int domIdx = 0; domIdx < ndomains; ++domIdx)
-        {
-            mesh_t mesh = pda::load_cellcentered_uniform_mesh_eigen(meshRoot + "/domain_" + to_string(domIdx));
-
-            i = domIdx % ndomX;
-            j = domIdx / ndomX;
-
-            // left physical boundary
-            if (i == 0) {
-                auto bcLeft = bcLeftPhys;
-            }
-            else {
-                auto bcLeft = BCType::SchwarzDirichlet;
-            }
-            // right physical boundary
-            if (i == (ndomX - 1)) {
-                auto bcRight = bcRightPhys;
-            }
-            else {
-                auto bcRight = BCType::SchwarzDirichlet;
-            }
-            // front physical boundary
-            if (j == 0) {
-                auto bcFront = bcFrontPhys;
-            }
-            else {
-                auto bcFront = BCType::SchwarzDirichlet;
-            }
-            // back physical boundary
-            if (j == (ndomY - 1)) {
-                auto bcBack = bcBackPhys;
-            }
-            else {
-                auto bcBack = BCType::SchwarzDirichlet;
-            }
-
-            subdomainVec.emplace_back(
-                Subdomain<prob_t, order_t, scheme_t, mesh_t, app_t>(
-                    probId, order, scheme, mesh,
-                    bcLeft, bcFront, bcRight, bcBack,
-                    controlItersVec[domIdx], icflag
-                )
+            // get app type to template Subdomain
+            using app_t = decltype(
+                pda::create_problem_eigen(
+                    declval<mesh_t>(), probId, order,
+                    BCFunctor(bcLeftPhys), BCFunctor(bcRightPhys),
+                    BCFunctor(bcFrontPhys), BCFunctor(bcBackPhys),
+                    icflag)
             );
 
+            int i, j;
+            BCType bcLeft, bcRight, bcFront, bcBack;
+
+            // determine boundary conditions for each subdomain, specify app type
+            for (int domIdx = 0; domIdx < ndomains; ++domIdx)
+            {
+                i = domIdx % ndomX;
+                j = domIdx / ndomX;
+
+                // left physical boundary
+                if (i == 0) {
+                    auto bcLeft = bcLeftPhys;
+                }
+                else {
+                    auto bcLeft = BCType::SchwarzDirichlet;
+                }
+                // right physical boundary
+                if (i == (ndomX - 1)) {
+                    auto bcRight = bcRightPhys;
+                }
+                else {
+                    auto bcRight = BCType::SchwarzDirichlet;
+                }
+                // front physical boundary
+                if (j == 0) {
+                    auto bcFront = bcFrontPhys;
+                }
+                else {
+                    auto bcFront = BCType::SchwarzDirichlet;
+                }
+                // back physical boundary
+                if (j == (ndomY - 1)) {
+                    auto bcBack = bcBackPhys;
+                }
+                else {
+                    auto bcBack = BCType::SchwarzDirichlet;
+                }
+
+                subdomainVec.emplace_back(
+                    Subdomain<prob_t, order_t, scheme_t, mesh_t, app_t>(
+                        probId, order, scheme, domIdx, meshRoot,
+                        bcLeft, bcFront, bcRight, bcBack,
+                        controlItersVec[domIdx], icflag
+                    )
+                );
+
+            }
         }
-      }
 
-//       vector<vector<int>> calc_neighbor_dims()
-//       {
-//         // determine neighboring domain IDs
+        vector<vector<int>> calc_neighbor_dims()
+        {
+            // determine neighboring domain IDs
 
-//         int maxDomNeighbors = 2 * dim;
-//         vector<vector<int>> exchDomIds(ndomains, vector<int>(maxDomNeighbors, -1));
+            int maxDomNeighbors = 2 * dim;
+            vector<vector<int>> exchDomIds(ndomains, vector<int>(maxDomNeighbors, -1));
 
-//         for (int domIdx = 0; domIdx < ndomains; ++domIdx) {
+            for (int domIdx = 0; domIdx < ndomains; ++domIdx) {
 
-//           // subdomain indices
-//           int i = {};
-//           int j = {};
-//           int k = {};
-//           i = domIdx % ndomX;
-//           if (dim > 1) {
-//             j = domIdx / ndomX;
-//           }
-//           if (dim == 2) {
-//             k = domIdx / (ndomX * ndomY);
-//           }
+                // subdomain indices
+                int i = {};
+                int j = {};
+                int k = {};
+                i = domIdx % ndomX;
+                if (dim > 1) {
+                    j = domIdx / ndomX;
+                }
+                if (dim == 2) {
+                    k = domIdx / (ndomX * ndomY);
+                }
 
 
-//           // 1D, 2D, and 3D
-//           // left boundary
-//           if (i != 0) {
-//             exchDomIds[domIdx][0] = domIdx - 1;
-//           }
+                // 1D, 2D, and 3D
+                // left boundary
+                if (i != 0) {
+                    exchDomIds[domIdx][0] = domIdx - 1;
+                }
 
-//           // right boundary
-//           if (i != (ndomX - 1)) {
-//             // ordering change for 1D vs. 2D/3D faces
-//             if (dim == 1) {
-//               exchDomIds[domIdx][1] = domIdx + 1;
-//             }
-//             else {
-//               exchDomIds[domIdx][2] = domIdx + 1;
-//             }
-//           }
+                // right boundary
+                if (i != (ndomX - 1)) {
+                    // ordering change for 1D vs. 2D/3D faces
+                    if (dim == 1) {
+                        exchDomIds[domIdx][1] = domIdx + 1;
+                    }
+                    else {
+                        exchDomIds[domIdx][2] = domIdx + 1;
+                    }
+                }
 
-//           // 2D and 3D
-//           if (dim > 1) {
-//             // front boundary
-//             if (j != (ndomY - 1)) {
-//               exchDomIds[domIdx][1] = domIdx + ndomX;
-//             }
+                // 2D and 3D
+                if (dim > 1) {
+                    // front boundary
+                    if (j != (ndomY - 1)) {
+                        exchDomIds[domIdx][1] = domIdx + ndomX;
+                    }
 
-//             // back boundary
-//             if (j != 0) {
-//               exchDomIds[domIdx][3] = domIdx - ndomX;
-//             }
-//           }
+                    // back boundary
+                    if (j != 0) {
+                        exchDomIds[domIdx][3] = domIdx - ndomX;
+                    }
+                }
 
-//           // 3D
-//           if (dim > 2) {
-//             // bottom boundary
-//             if (k != 0) {
-//               exchDomIds[domIdx][4] = domIdx - (ndomX * ndomY);
-//             }
+                // 3D
+                if (dim > 2) {
+                    // bottom boundary
+                    if (k != 0) {
+                        exchDomIds[domIdx][4] = domIdx - (ndomX * ndomY);
+                    }
 
-//             // top boundary
-//             if (k != (ndomZ - 1)) {
-//               exchDomIds[domIdx][5] = domIdx + (ndomX * ndomY);
-//             }
-//           }
+                    // top boundary
+                    if (k != (ndomZ - 1)) {
+                        exchDomIds[domIdx][5] = domIdx + (ndomX * ndomY);
+                    }
+                }
 
-//         }
+            }
 
-//         return exchDomIds;
+            return exchDomIds;
 
-//       }
+        }
 
-//       void check_mesh_compat() {
+        void check_mesh_compat() {
 
-//         // TODO: extend this for differing (but aligned) mesh resolutions
-//         if (dim == 1) return; // TODO: still need to check for differing 1D resolutions
+            // TODO: extend this for differing (but aligned) mesh resolutions
+            if (dim == 1) return; // TODO: still need to check for differing 1D resolutions
 
-//         for (int domIdx = 0; domIdx < ndomains; ++domIdx) {
+            for (int domIdx = 0; domIdx < ndomains; ++domIdx) {
 
-//           const auto domMesh = appVec[domIdx].getMesh();
-//           int nx = domMesh.nx();
-//           int ny = domMesh.ny();
-//           int nz = domMesh.nz();
+                int nx = subdomainVec[domIdx].nx;
+                int ny = subdomainVec[domIdx].ny;
+                int nz = subdomainVec[domIdx].nz;
 
-//           for (int neighIdx = 0; neighIdx < (int) exchDomIdVec[domIdx].size(); ++neighIdx) {
+                for (int neighIdx = 0; neighIdx < (int) exchDomIdVec[domIdx].size(); ++neighIdx) {
 
-//             int neighDomIdx = exchDomIdVec[domIdx][neighIdx];
-//             if (neighDomIdx == -1) {
-//               continue;  // not a Schwarz BC
-//             }
+                    int neighDomIdx = exchDomIdVec[domIdx][neighIdx];
+                    if (neighDomIdx == -1) {
+                        continue;  // not a Schwarz BC
+                    }
 
-//             const auto neighMesh = appVec[neighDomIdx].getMesh();
-//             int nxNeigh = neighMesh.nx();
-//             int nyNeigh = neighMesh.ny();
-//             int nzNeigh = neighMesh.nz();
+                    int nxNeigh = subdomainVec[neighDomIdx].nx;
+                    int nyNeigh = subdomainVec[neighDomIdx].ny;
+                    int nzNeigh = subdomainVec[neighDomIdx].nz;
 
-//             string xerr = "Mesh x-dimension mismatch for domains " + to_string(domIdx) + " v " + to_string(neighDomIdx) + ": " + to_string(nx) + " != " + to_string(nxNeigh);
-//             string yerr = "Mesh y-dimension mismatch for domains " + to_string(domIdx) + " v " + to_string(neighDomIdx) + ": " + to_string(ny) + " != " + to_string(nyNeigh);
-//             string zerr = "Mesh z-dimension mismatch for domains " + to_string(domIdx) + " v " + to_string(neighDomIdx) + ": " + to_string(nz) + " != " + to_string(nzNeigh);
+                    string xerr = "Mesh x-dimension mismatch for domains " + to_string(domIdx) + " v " + to_string(neighDomIdx) + ": " + to_string(nx) + " != " + to_string(nxNeigh);
+                    string yerr = "Mesh y-dimension mismatch for domains " + to_string(domIdx) + " v " + to_string(neighDomIdx) + ": " + to_string(ny) + " != " + to_string(nyNeigh);
+                    string zerr = "Mesh z-dimension mismatch for domains " + to_string(domIdx) + " v " + to_string(neighDomIdx) + ": " + to_string(nz) + " != " + to_string(nzNeigh);
 
-//             // left and right
-//             if ((neighIdx == 0) || (neighIdx == 2)) {
-//               if (ny != nyNeigh) {
-//                 cerr << yerr << endl;
-//                 exit(-1);
-//               }
-//               if (nz != nzNeigh) {
-//                 cerr << zerr << endl;
-//                 exit(-1);
-//               }
-//             }
+                    // left and right
+                    if ((neighIdx == 0) || (neighIdx == 2)) {
+                        if (ny != nyNeigh) {
+                            cerr << yerr << endl;
+                            exit(-1);
+                        }
+                        if (nz != nzNeigh) {
+                            cerr << zerr << endl;
+                            exit(-1);
+                        }
+                    }
 
-//             // front and back
-//             if ((neighIdx == 1) || (neighIdx == 3)) {
-//               if (nx != nxNeigh) {
-//                 cerr << xerr << endl;
-//                 exit(-1);
-//               }
-//               if (nz != nzNeigh) {
-//                 cerr << zerr << endl;
-//                 exit(-1);
-//               }
-//             }
+                    // front and back
+                    if ((neighIdx == 1) || (neighIdx == 3)) {
+                        if (nx != nxNeigh) {
+                            cerr << xerr << endl;
+                            exit(-1);
+                        }
+                        if (nz != nzNeigh) {
+                            cerr << zerr << endl;
+                            exit(-1);
+                        }
+                    }
 
-//             // bottom and top
-//             if ((neighIdx == 4) || (neighIdx == 5)) {
-//               if (nx != nxNeigh) {
-//                 cerr << xerr << endl;
-//                 exit(-1);
-//               }
-//               if (ny != nyNeigh) {
-//                 cerr << yerr << endl;
-//                 exit(-1);
-//               }
-//             }
+                    // bottom and top
+                    if ((neighIdx == 4) || (neighIdx == 5)) {
+                        if (nx != nxNeigh) {
+                            cerr << xerr << endl;
+                            exit(-1);
+                        }
+                        if (ny != nyNeigh) {
+                            cerr << yerr << endl;
+                            exit(-1);
+                        }
+                    }
 
-//           } // domain loop
-//         } // neightbor loop
+                } // domain loop
+            } // neightbor loop
 
-//       }
+        }
 
 //       vector<graph_t> calc_exch_graph(
 //         const int bcStencil,
