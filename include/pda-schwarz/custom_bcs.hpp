@@ -7,6 +7,8 @@
 #include "pressiodemoapps/euler2d.hpp"
 #include "pressiodemoapps/swe2d.hpp"
 
+using namespace std;
+
 namespace pda = pressiodemoapps;
 
 namespace pdaschwarz{
@@ -29,11 +31,11 @@ struct BCFunctor
         switch(bcSwitch)
         {
             case BCType::Euler2DHomogNeumann:
-                Euler2DHomogNeumannBC(std::forward<Args>(args)...);
+                Euler2DHomogNeumannBC(forward<Args>(args)...);
             case BCType::SchwarzDirichlet:
-                SchwarzDirichletBC(std::forward<Args>(args)...);
+                SchwarzDirichletBC(forward<Args>(args)...);
             default:
-                throw std::runtime_error("Invalid probId for getPhysBCs()");
+                throw runtime_error("Invalid probId for getPhysBCs()");
         };
     }
 
@@ -111,7 +113,7 @@ auto getPhysBCs(pda::Euler2d probId, pda::impl::GhostRelativeLocation rloc)
         }
 
         default:
-            throw std::runtime_error("Invalid probId for getPhysBCs()");
+            throw runtime_error("Invalid probId for getPhysBCs()");
 
     }
 

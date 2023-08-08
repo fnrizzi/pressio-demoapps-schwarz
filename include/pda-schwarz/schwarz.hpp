@@ -54,16 +54,13 @@ class SchwarzDecomp
             check_mesh_compat(); // a little error checking
             exchGraphVec = calc_exch_graph(bcStencilSize, exchDomIdVec);
 
-            // first communication, set internal pointer
+            // first communication
             for (int domIdx = 0; domIdx < m_ndomains; ++domIdx) {
                 broadcast_bcState(domIdx);
             }
 
-            // // set up ghost filling graph, set internal pointer
+            // set up ghost filling graph
             // ghostGraphVec = calc_ghost_graph();
-            // for (int domIdx = 0; domIdx < m_ndomains; ++domIdx) {
-            //     appVec[domIdx].setGraphBc(&ghostGraphVec[domIdload_cellcentered_uniform_mesh_eigenx]);
-            // }
 
         }
 
@@ -95,35 +92,35 @@ class SchwarzDecomp
                     ss >> colVal;
                     m_dim = stoi(colVal);
                     if (m_dim < 1)
-                        throw std::runtime_error("dim must be >= 1");
+                        throw runtime_error("dim must be >= 1");
                 }
 
                 else if (colVal == "ndomX"){
                     ss >> colVal;
                     m_ndomX = stoi(colVal);
                     if (m_ndomX < 1)
-                        throw std::runtime_error("ndomX must be >= 1");
+                        throw runtime_error("ndomX must be >= 1");
                 }
 
                 else if (colVal == "ndomY"){
                     ss >> colVal;
                     m_ndomY = stoi(colVal);
                     if (m_ndomY < 1)
-                        throw std::runtime_error("ndomY must be >= 1");
+                        throw runtime_error("ndomY must be >= 1");
                 }
 
                 else if (colVal == "ndomZ"){
                     ss >> colVal;
                     m_ndomZ = stoi(colVal);
                     if (m_ndomZ < 1)
-                        throw std::runtime_error("ndomZ must be >= 1");
+                        throw runtime_error("ndomZ must be >= 1");
                 }
 
                 else if (colVal == "overlap"){
                     ss >> colVal;
                     m_overlap = stoi(colVal);
                     if (m_overlap < 0)
-                        throw std::runtime_error("overlap must be > 0");
+                        throw runtime_error("overlap must be > 0");
                     // has to be an even number for simplicity, can change later
                     if (m_overlap % 2) {
                         cerr << "overlap must be an even number" << endl;
@@ -571,196 +568,197 @@ class SchwarzDecomp
 
         }
 
-//       vector<graph_t> calc_ghost_graph()
-//       {
+        vector<graph_t> calc_ghost_graph()
+        {
 
-//         vector<graph_t> ghostGraphs(m_ndomains);
+            vector<graph_t> ghostGraphs(m_ndomains);
 
-//         for (int domIdx = 0; domIdx < m_ndomains; ++domIdx) {
+            for (int domIdx = 0; domIdx < m_ndomains; ++domIdx) {
 
-//           const auto meshObj = meshVec[domIdx];
-//           const auto intGraph = meshObj.graph();
-//           int nx = meshObj.nx();
-//           int ny = meshObj.ny();
-//           // int nz = meshObj.nz();
+                const auto meshObj = subdomainVec[domIdx].mesh;
+                const auto intGraph = meshObj.graph();
+                int nx = subdomainVec[domIdx].nx();
+                int ny = subdomainVec[domIdx].ny();
+                // int nz = subdomainVec[domIdx].nz();
 
-//           const auto & rowsBd = meshObj.graphRowsOfCellsNearBd();
-//           pda::resize(ghostGraphs[domIdx], int(rowsBd.size()), 2 * m_dim);
-//           ghostGraphs[domIdx].fill(-1);
+                const auto & rowsBd = meshObj.graphRowsOfCellsNearBd();
+                pda::resize(ghostGraphs[domIdx], int(rowsBd.size()), 2 * m_dim);
+                ghostGraphs[domIdx].fill(-1);
 
-//           for (decltype(rowsBd.size()) it = 0; it < rowsBd.size(); ++it) {
+                for (decltype(rowsBd.size()) it = 0; it < rowsBd.size(); ++it) {
 
-//             // ASK FR: is there an instance when rowsBd[it] != intGraph(rowsBd[it], 0)?
-//             //    The indices appear to be identical
-//             // TODO: this is all totally wrong for higher order
+                    // ASK FR: is there an instance when rowsBd[it] != intGraph(rowsBd[it], 0)?
+                    //    The indices appear to be identical
+                    // TODO: this is all totally wrong for higher order
 
-//             const auto smPt = rowsBd[it];
-//             const auto left0  = intGraph(smPt, 1);
-//             const auto front0 = intGraph(smPt, 2);
-//             const auto right0 = intGraph(smPt, 3);
-//             const auto back0  = intGraph(smPt, 4);
+                    const auto smPt = rowsBd[it];
+                    const auto left0  = intGraph(smPt, 1);
+                    const auto front0 = intGraph(smPt, 2);
+                    const auto right0 = intGraph(smPt, 3);
+                    const auto back0  = intGraph(smPt, 4);
 
-//             // int stencilIdx = 0; // first order
-//             int rowIdx = smPt / nx;
-//             int colIdx = smPt % nx;
-//             int bcCellIdx;
+                    // int stencilIdx = 0; // first order
+                    int rowIdx = smPt / nx;
+                    int colIdx = smPt % nx;
+                    int bcCellIdx;
 
-//             if (left0 == -1) {
-//               if (exchDomIdVec[domIdx][0] != -1) {
-//                 bcCellIdx = rowIdx;
-//                 ghostGraphs[domIdx](it, 0) = bcCellIdx * m_dofPerCell;
-//               }
-//             }
+                    if (left0 == -1) {
+                        if (exchDomIdVec[domIdx][0] != -1) {
+                            bcCellIdx = rowIdx;
+                            ghostGraphs[domIdx](it, 0) = bcCellIdx * m_dofPerCell;
+                        }
+                    }
 
-//             if (front0 == -1) {
-//               if (exchDomIdVec[domIdx][1] != -1) {
-//                 bcCellIdx = ny + colIdx;
-//                 ghostGraphs[domIdx](it, 1) = bcCellIdx * m_dofPerCell;
-//               }
-//             }
+                    if (front0 == -1) {
+                        if (exchDomIdVec[domIdx][1] != -1) {
+                            bcCellIdx = ny + colIdx;
+                            ghostGraphs[domIdx](it, 1) = bcCellIdx * m_dofPerCell;
+                        }
+                    }
 
-//             if (right0 == -1) {
-//               if (exchDomIdVec[domIdx][2] != -1) {
-//                 bcCellIdx = ny + nx + rowIdx;
-//                 ghostGraphs[domIdx](it, 2) = bcCellIdx * m_dofPerCell;
-//               }
-//             }
+                    if (right0 == -1) {
+                        if (exchDomIdVec[domIdx][2] != -1) {
+                            bcCellIdx = ny + nx + rowIdx;
+                            ghostGraphs[domIdx](it, 2) = bcCellIdx * m_dofPerCell;
+                        }
+                    }
 
-//             if (back0 == -1) {
-//               if (exchDomIdVec[domIdx][3] != -1) {
-//                 bcCellIdx = 2 * ny + nx + colIdx;
-//                 ghostGraphs[domIdx](it, 3) = bcCellIdx * m_dofPerCell;
-//               }
-//             }
-//             // TODO: extend to higher order, 3D
+                    if (back0 == -1) {
+                        if (exchDomIdVec[domIdx][3] != -1) {
+                            bcCellIdx = 2 * ny + nx + colIdx;
+                            ghostGraphs[domIdx](it, 3) = bcCellIdx * m_dofPerCell;
+                        }
+                    }
+                    // TODO: extend to higher order, 3D
 
-//           } // boundary cell loop
-//         } // domain loop
+                } // boundary cell loop
+            } // domain loop
 
-//         return ghostGraphs;
+            return ghostGraphs;
 
-//       }
+        }
 
-//       array<double, 2> calcConvergence(const state_t & state1, const state_t & state2)
-//       {
-//         // TODO: assumed to be an Eigen state, not sure how to generalize
-//         // TODO: compute convergence for each variable separately
+        template <class state_t>
+        array<double, 2> calcConvergence(const state_t & state1, const state_t & state2)
+        {
+            // TODO: assumed to be an Eigen state, not sure how to generalize
+            // TODO: compute convergence for each variable separately
 
-//         int numDOF = state1.size();
-//         if (state2.size() != numDOF) {
-//           cerr << "state1 size does not match state2 size, " << numDOF << " vs. " << state2.size() << endl;
-//           exit(-1);
-//         }
+            int numDOF = state1.size();
+            if (state2.size() != numDOF) {
+                cerr << "state1 size does not match state2 size, " << numDOF << " vs. " << state2.size() << endl;
+                exit(-1);
+            }
 
-//         // absolute error
-//         double abs_err = (state1 - state2).squaredNorm();
+            // absolute error
+            double abs_err = (state1 - state2).squaredNorm();
 
-//         // handle edge cases for relative error
-//         double rel_err;
-//         double basenorm = state1.squaredNorm();
-//         if (basenorm > 0) {
-//           rel_err = abs_err / basenorm;
-//         }
-//         else {
-//           if (abs_err > 0) {
-//               rel_err = 1.0;
-//           }
-//           else {
-//               rel_err = 0.0;
-//           }
-//         }
+            // handle edge cases for relative error
+            double rel_err;
+            double basenorm = state1.squaredNorm();
+            if (basenorm > 0) {
+                rel_err = abs_err / basenorm;
+            }
+            else {
+                if (abs_err > 0) {
+                    rel_err = 1.0;
+                }
+                else {
+                    rel_err = 0.0;
+                }
+            }
 
-//         array<double, 2> errArr = {abs_err, rel_err};
-//         return errArr;
+            array<double, 2> errArr = {abs_err, rel_err};
+            return errArr;
 
-//       }
+        }
 
-//     public:
+    public:
 
-//       void calc_controller_step(
-//         int outerStep,
-//         double time,
-//         const double rel_err_tol,
-//         const double abs_err_tol,
-//         const int convergeStepMax)
-//       {
+        void calc_controller_step(
+            int outerStep,
+            double time,
+            const double rel_err_tol,
+            const double abs_err_tol,
+            const int convergeStepMax)
+        {
 
-//         // store initial step for resetting if Schwarz iter does not converge
-//         for (int domIdx = 0; domIdx < m_ndomains; ++domIdx) {
-//           stateHistVec[domIdx][0] = stateVec[domIdx];
-//         }
+            // store initial step for resetting if Schwarz iter does not converge
+            for (int domIdx = 0; domIdx < m_ndomains; ++domIdx) {
+                subdomainVec[domIdx].stateHistVec[0] = subdomainVec[domIdx].state;
+            }
 
-//         // convergence
-//         int convergeStep = 0;
-//         vector<array<double, 2>> convergeVals(m_ndomains);
-//         while (convergeStep < convergeStepMax) {
+            // convergence
+            int convergeStep = 0;
+            vector<array<double, 2>> convergeVals(m_ndomains);
+            while (convergeStep < convergeStepMax) {
 
-//           cout << "Schwarz iteration " << convergeStep + 1 << endl;
+                cout << "Schwarz iteration " << convergeStep + 1 << endl;
 
-//           for (int domIdx = 0; domIdx < m_ndomains; ++domIdx) {
+                for (int domIdx = 0; domIdx < m_ndomains; ++domIdx) {
 
-//             // reset to beginning of controller time
-//             auto timeDom = time;
-//             auto stepDom = outerStep * controlItersVec[domIdx];
+                    // reset to beginning of controller time
+                    auto timeDom = time;
+                    auto stepDom = outerStep * controlItersVec[domIdx];
 
-//             const auto dtDom = dt[domIdx];
-//             const auto dtWrap = pode::StepSize<double>(dtDom);
+                    const auto dtDom = dt[domIdx];
+                    const auto dtWrap = pode::StepSize<double>(dtDom);
 
-//             // controller inner loop
-//             for (int innerStep = 0; innerStep < controlItersVec[domIdx]; ++innerStep) {
+                    // controller inner loop
+                    for (int innerStep = 0; innerStep < controlItersVec[domIdx]; ++innerStep) {
 
-//               const auto startTimeWrap = pode::StepStartAt<double>(timeDom);
-//               const auto stepWrap = pode::StepCount(stepDom);
+                        const auto startTimeWrap = pode::StepStartAt<double>(timeDom);
+                        const auto stepWrap = pode::StepCount(stepDom);
 
-//               stepperVec[domIdx](stateVec[domIdx], startTimeWrap, stepWrap, dtWrap, nonlinSolverVec[domIdx]);
+                        subdomainVec[domIdx].stepper(subdomainVec[domIdx].state, startTimeWrap, stepWrap, dtWrap, subdomainVec[domIdx].nonlinSolver);
 
-//               // for last iteration, compute convergence criteria
-//               // important to do this before saving history, as stateHistVec still has last convergence loop's state
-//               if (innerStep == (controlItersVec[domIdx] - 1)) {
-//                 convergeVals[domIdx] = calcConvergence(stateVec[domIdx], stateHistVec[domIdx].back());
-//               }
+                        // for last iteration, compute convergence criteria
+                        // important to do this before saving history, as stateHistVec still has last convergence loop's state
+                        if (innerStep == (controlItersVec[domIdx] - 1)) {
+                            convergeVals[domIdx] = calcConvergence(subdomainVec[domIdx].state, subdomainVec[domIdx].stateHistVec.back());
+                        }
 
-//               // store intra-step history
-//               stateHistVec[domIdx][innerStep + 1] = stateVec[domIdx];
+                        // store intra-step history
+                        subdomainVec[domIdx].stateHistVec[innerStep + 1] = subdomainVec[domIdx].state;
 
-//               // set (interpolated) boundary conditions
+                        // set (interpolated) boundary conditions
 
-//               // update local step and time
-//               stepDom++;
-//               timeDom += dtDom;
+                        // update local step and time
+                        stepDom++;
+                        timeDom += dtDom;
 
-//             } // domain loop
+                    } // domain loop
 
-//             // broadcast boundary conditions
-//             broadcast_bcState(domIdx);
+                    // broadcast boundary conditions
+                    broadcast_bcState(domIdx);
 
-//           }
+                }
 
-//           // check convergence for all domains, break if conditions met
-//           double abs_err = 0.0;
-//           double rel_err = 0.0;
-//           for (int domIdx = 0; domIdx < m_ndomains; ++domIdx) {
-//             abs_err += convergeVals[domIdx][0];
-//             rel_err += convergeVals[domIdx][1];
-//           }
-//           abs_err /= m_ndomains;
-//           rel_err /= m_ndomains;
-//           cout << "Average abs err: " << abs_err << endl;
-//           cout << "Average rel err: " << rel_err << endl;
-//           if ((rel_err < rel_err_tol) || (abs_err < abs_err_tol)) {
-//             break;
-//           }
+                // check convergence for all domains, break if conditions met
+                double abs_err = 0.0;
+                double rel_err = 0.0;
+                for (int domIdx = 0; domIdx < m_ndomains; ++domIdx) {
+                    abs_err += convergeVals[domIdx][0];
+                    rel_err += convergeVals[domIdx][1];
+                }
+                abs_err /= m_ndomains;
+                rel_err /= m_ndomains;
+                cout << "Average abs err: " << abs_err << endl;
+                cout << "Average rel err: " << rel_err << endl;
+                if ((rel_err < rel_err_tol) || (abs_err < abs_err_tol)) {
+                    break;
+                }
 
-//           convergeStep++;
+                convergeStep++;
 
-//           // reset interior state if not converged
-//           for (int domIdx = 0; domIdx < m_ndomains; ++domIdx) {
-//             stateVec[domIdx] = stateHistVec[domIdx][0];
-//           }
+                // reset interior state if not converged
+                for (int domIdx = 0; domIdx < m_ndomains; ++domIdx) {
+                    subdomainVec[domIdx].state = subdomainVec[domIdx].stateHistVec[0];
+                }
 
-//         } // convergence loop
+            } // convergence loop
 
-//       }
+        }
 
 
     public:

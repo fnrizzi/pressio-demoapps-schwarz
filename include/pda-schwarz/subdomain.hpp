@@ -32,7 +32,7 @@ class Subdomain
         using state_t        = typename app_t::state_type;
         using jacob_t        = typename app_t::jacobian_type;
         using stepper_t      = decltype( pode::create_implicit_stepper(declval<scheme_t>(), declval<app_t &>()) );
-        // // TODO: generalize to more than BICGSTAB
+        // TODO: generalize to more than BICGSTAB
         using linsolver_t    = pls::Solver<pls::iterative::Bicgstab, jacob_t>;
         using nonlinsolver_t = decltype( pressio::create_newton_solver( declval<stepper_t &>(), declval<linsolver_t&>()) );
 
