@@ -26,7 +26,7 @@ template<
     class app_t>
 class Subdomain
 {
-    private:
+    public:
 
         using graph_t        = typename mesh_t::graph_t;
         using state_t        = typename app_t::state_type;
@@ -59,25 +59,34 @@ class Subdomain
             controlIters(controlItersIn)
         {
 
+            // mesh dimensions (non-hyper-reduced only)
+            // TODO: can presumably remove this when routines generalized to unstructured format
+            m_bcStencilSize = (pda::reconstructionTypeToStencilSize(order) - 1) / 2;
+            read_mesh_dims();
+
             // states
             state = app.initialCondition();
             for (int histIdx = 0; histIdx < controlIters + 1; ++histIdx) {
                 stateHistVec.emplace_back(app.initialCondition());
             }
+            init_bc_state();
 
             // solver
             nonlinSolver.setStopTolerance(1e-5);
 
-            // mesh dimensions (non-hyper-reduced only)
-            // TODO: can presumably remove this when routines generalized to unstructured format
-            get_mesh_dims();
-
         }
 
+        // getters
+        int nx() const{ return m_nx; }
+        int ny() const{ return m_ny; }
+        int nz() const{ return m_nz; }
 
     private:
-        void get_mesh_dims()
+        void read_mesh_dims()
         {
+            // Read uniform mesh dimensions, as this was removed from PDA
+            // NOTE: this should be made obsolete when code is generalized to connectivity graph, doesn't depend on uniform mesh
+
             const auto inFile = meshRoot + "/domain_" + to_string(domIdx) + "/info.dat";
             ifstream foundFile(inFile);
             if(!foundFile){
@@ -95,39 +104,50 @@ class Subdomain
 
                 if (colVal == "nx"){
                     ss >> colVal;
-                    nx = stoi(colVal);
+                    m_nx = stoi(colVal);
                 }
 
                 else if (colVal == "ny"){
                     ss >> colVal;
-                    ny = stoi(colVal);
+                    m_ny = stoi(colVal);
                 }
 
                 else if (colVal == "nz"){
                     ss >> colVal;
-                    nz = stoi(colVal);
+                    m_nz = stoi(colVal);
                 }
 
             }
             source.close();
         }
 
+        void init_bc_state() {
+
+            int bcStencilDof = m_bcStencilSize * app_t::numDofPerCell;
+            int numDofStencilBc = 2 * bcStencilDof * (m_nx + m_ny + m_nz);
+            pda::resize(stateBCs, numDofStencilBc);
+            stateBCs.fill(0.0);
+
+        }
+
+    // TODO: scope correctly
 
     public:
         state_t state;
+        state_t stateBCs;
         vector<state_t> stateHistVec;
         int controlIters;
-
-        // mesh dimensions (non-hyper-reduced)
-        int nx = 0;
-        int ny = 0;
-        int nz = 0;
 
     private:
         const string meshRoot;
         const int domIdx;
 
-    // TODO: scope correctly
+        // mesh dimensions (non-hyper-reduced)
+        int m_nx = 0;
+        int m_ny = 0;
+        int m_nz = 0;
+        int m_bcStencilSize;
+
     public:
         linsolver_t* linSolverObj;
         mesh_t mesh;
