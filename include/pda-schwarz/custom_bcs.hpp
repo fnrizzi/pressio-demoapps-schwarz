@@ -79,12 +79,7 @@ struct BCFunctor
                         const StateT & currentState, int numDofPerCell,
                         const double cellWidth, T & ghostValues) const
         {
-            const int cellGID = connectivityRow[0];
-            const auto uIndex  = cellGID*numDofPerCell;
-            ghostValues[0] = currentState(uIndex);
-            ghostValues[1] = currentState(uIndex+1);
-            ghostValues[2] = currentState(uIndex+2);
-            ghostValues[3] = currentState(uIndex+3);
+            runtime_error("Schwarz BC not implemented");
         }
 
         template<class ConnecRowType, class FactorsType>
