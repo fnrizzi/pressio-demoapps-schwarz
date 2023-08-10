@@ -14,7 +14,7 @@
 namespace pdaschwarz{
 
 //
-// alises to make life easier
+// aliases to make life easier
 //
 using mesh_t = pressiodemoapps::cellcentered_uniform_mesh_eigen_type;
 using euler_app_type =
