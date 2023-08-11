@@ -1,19 +1,18 @@
 
-
 #ifndef PRESSIODEMOAPPS_SCHWARZ_HPP_
 #define PRESSIODEMOAPPS_SCHWARZ_HPP_
 
+#include "pressio/ode_steppers_implicit.hpp"
+#include "pressiodemoapps/impl/ghost_relative_locations.hpp"
+#include "./custom_bcs.hpp"
+#include "./subdomain.hpp"
+#include "./tiling.hpp"
 #include <string>
 #include <vector>
 #include <iostream>
 #include <fstream>
 #include <sstream>
 
-#include "pressio/ode_steppers_implicit.hpp"
-
-#include "pressiodemoapps/impl/ghost_relative_locations.hpp"
-#include "./custom_bcs.hpp"
-#include "./subdomain.hpp"
 
 using namespace std;
 
@@ -22,313 +21,124 @@ namespace pdaschwarz{
 namespace pda = pressiodemoapps;
 namespace pode = pressio::ode;
 
+using mesh_t = pressiodemoapps::cellcentered_uniform_mesh_eigen_type;
+using euler_app_type =
+    decltype(pda::create_problem_eigen(
+            declval<mesh_t>(),
+            declval<pressiodemoapps::Euler2d>(),
+            declval<pda::InviscidFluxReconstruction>(),
+            // NOTE: bc functors must be rvalues because in the constructor
+            // of SubdomainFrizzi we construct the app by passing rvalues
+            declval<BCFunctor>(),
+            declval<BCFunctor>(),
+            declval<BCFunctor>(),
+            declval<BCFunctor>(),
+            int() /* initial condition */
+        )
+    );
 
-template<class prob_t, class mesh_t, class order_t, class scheme_t, class subdom_t>
+
+template<class SubdomainType>
 class SchwarzDecomp
 {
 
-    using graph_t = typename mesh_t::graph_t;
+    using app_t   = typename SubdomainType::app_t;
+    using graph_t = typename app_t::mesh_connectivity_graph_type;
+    using state_t = typename app_t::state_type;
 
-    public:
+public:
 
-        SchwarzDecomp(
-            prob_t probId,
-            order_t order,
-            scheme_t scheme,
-            const string & meshRoot,
-            vector<double> & dtVec,
-            const int icflag = 1)
+        SchwarzDecomp(vector<SubdomainType> & subdomains,
+                    shared_ptr<const Tiling> tiling,
+                    vector<double> & dtVec)
+            : m_dofPerCell(app_t::numDofPerCell)
+            , m_tiling(tiling)
+            , m_subdomainVec(subdomains)
         {
+            cout << " **** decomp constructor: start ***" << endl;
+            m_dofPerCell = app_t::numDofPerCell;
 
-            // get decomposition info
-            read_domain_info(meshRoot);
-            m_ndomains = m_ndomX * m_ndomY * m_ndomZ;
-
-            // set up problem
             setup_controller(dtVec);
-            init_subdomains(probId, order, scheme, meshRoot, icflag);
+            for (int domIdx = 0; domIdx < subdomains.size(); ++domIdx) {
+                m_subdomainVec[domIdx].allocateStorageForHistory(m_controlItersVec[domIdx]);
+            }
 
             // set up communication patterns
-            bcStencilSize = (pda::reconstructionTypeToStencilSize(order) - 1) / 2;
-            exchDomIdVec = calc_neighbor_dims();
-            check_mesh_compat(); // a little error checking
-            exchGraphVec = calc_exch_graph(bcStencilSize, exchDomIdVec);
+            // FIXME: need to move this m_bcStencilSize somwwhere else
+            m_bcStencilSize = 1; ///(pressiodemoapps::reconstructionTypeToStencilSize(order) - 1) / 2;
+            // check_mesh_compat(); // a little error checking
+            calc_exch_graph(m_bcStencilSize);
 
             // first communication
-            for (int domIdx = 0; domIdx < m_ndomains; ++domIdx) {
-                broadcast_bcState(domIdx);
+            for (int domIdx = 0; domIdx < subdomains.size(); ++domIdx) {
+            broadcast_bcState(domIdx);
             }
-
             // set up ghost filling graph
-            // ghostGraphVec = calc_ghost_graph();
+            calc_ghost_graph();
 
+            cout << " **** decomp constructor: complete ***" << endl;
         }
 
-    private:
-
-        void read_domain_info(const string & meshRoot)
-        {
-            const auto inFile = meshRoot + "/info_domain.dat";
-            ifstream foundFile(inFile);
-            if(!foundFile){
-            cout << "file not found " << inFile << endl;
-            exit(EXIT_FAILURE);
-            }
-
-            // defaults
-            m_ndomX = 1;
-            m_ndomY = 1;
-            m_ndomZ = 1;
-
-            ifstream source( inFile, ios_base::in);
-            string line;
-            while (getline(source, line) )
-            {
-                istringstream ss(line);
-                string colVal;
-                ss >> colVal;
-
-                if (colVal == "dim"){
-                    ss >> colVal;
-                    m_dim = stoi(colVal);
-                    if (m_dim < 1)
-                        throw runtime_error("dim must be >= 1");
-                }
-
-                else if (colVal == "ndomX"){
-                    ss >> colVal;
-                    m_ndomX = stoi(colVal);
-                    if (m_ndomX < 1)
-                        throw runtime_error("ndomX must be >= 1");
-                }
-
-                else if (colVal == "ndomY"){
-                    ss >> colVal;
-                    m_ndomY = stoi(colVal);
-                    if (m_ndomY < 1)
-                        throw runtime_error("ndomY must be >= 1");
-                }
-
-                else if (colVal == "ndomZ"){
-                    ss >> colVal;
-                    m_ndomZ = stoi(colVal);
-                    if (m_ndomZ < 1)
-                        throw runtime_error("ndomZ must be >= 1");
-                }
-
-                else if (colVal == "overlap"){
-                    ss >> colVal;
-                    m_overlap = stoi(colVal);
-                    if (m_overlap < 0)
-                        throw runtime_error("overlap must be > 0");
-                    // has to be an even number for simplicity, can change later
-                    if (m_overlap % 2) {
-                        cerr << "overlap must be an even number" << endl;
-                        exit(-1);
-                    }
-                }
-            }
-            source.close();
-        }
+private:
 
         void setup_controller(vector<double> & dtVec)
         {
 
+            const auto & tiling = *m_tiling;
+
             // physical time step checks
-            dt = dtVec;
-            if (dt.size() == 1) {
-                dt.resize(m_ndomains, dt[0]);
+            m_dt = dtVec;
+            if (m_dt.size() == 1) {
+                m_dt.resize(tiling.count(), m_dt[0]);
             } else {
-                if (dt.size() != (size_t) m_ndomains) {
-                    cerr << "dt.size() must be 1 or ndomains, exiting" << endl;
+                if (m_dt.size() != (size_t) tiling.count()) {
+                    cerr << "m_dt.size() must be 1 or ndomains, exiting" << endl;
                     exit(-1);
                 }
             }
-            dtMax = *max_element(dt.begin(), dt.end());
+            m_dtMax = *max_element(m_dt.begin(), m_dt.end());
 
             // controller time step checks
-            controlItersVec.resize(m_ndomains);
-            for (int domIdx = 0; domIdx < (int) dt.size(); ++domIdx) {
-                double niters = dtMax / dt[domIdx];
+            m_controlItersVec.resize(tiling.count());
+            for (int domIdx = 0; domIdx < (int) m_dt.size(); ++domIdx) {
+                double niters = m_dtMax / m_dt[domIdx];
                 if (round(niters) == niters) {
-                    controlItersVec[domIdx] = int(round(niters));
+                    m_controlItersVec[domIdx] = int(round(niters));
                 } else {
-                    cerr << "dt of domain " << domIdx << " (" << dt[domIdx] << ") is not an integer divisor of maximum dt (" << dtMax << ")" << endl;
+                    cerr << "dt of domain " << domIdx
+                    << " (" << m_dt[domIdx]
+                    << ") is not an integer divisor of maximum m_dt ("
+                    << m_dtMax << ")" << endl;
                     exit(-1);
                 }
             }
-
-        }
-
-        void init_subdomains(
-            prob_t probId,
-            order_t order,
-            scheme_t scheme,
-            const string & meshRoot,
-            const int icflag)
-        {
-
-            // TODO: generalize for 1D, 3D
-
-            // physical boundaries
-            auto bcLeftPhys  = getPhysBCs(probId, pda::impl::GhostRelativeLocation::Left);
-            auto bcRightPhys = getPhysBCs(probId, pda::impl::GhostRelativeLocation::Right);
-            auto bcFrontPhys = getPhysBCs(probId, pda::impl::GhostRelativeLocation::Front);
-            auto bcBackPhys  = getPhysBCs(probId, pda::impl::GhostRelativeLocation::Back);
-
-            // get app type to template Subdomain, state type for later
-            using app_t = decltype(
-                pda::create_problem_eigen(
-                    declval<mesh_t>(), probId, order,
-                    BCFunctor(bcLeftPhys), BCFunctor(bcRightPhys),
-                    BCFunctor(bcFrontPhys), BCFunctor(bcBackPhys),
-                    icflag)
-            );
-            using state_t = typename app_t::state_type;
-
-            m_dofPerCell = app_t::numDofPerCell;
-
-            int i, j;
-            BCType bcLeft, bcRight, bcFront, bcBack;
-
-            // determine boundary conditions for each subdomain, specify app type
-            for (int domIdx = 0; domIdx < m_ndomains; ++domIdx)
-            {
-                i = domIdx % m_ndomX;
-                j = domIdx / m_ndomX;
-
-                // left physical boundary
-                if (i == 0) {
-                    auto bcLeft = bcLeftPhys;
-                }
-                else {
-                    auto bcLeft = BCType::SchwarzDirichlet;
-                }
-                // right physical boundary
-                if (i == (m_ndomX - 1)) {
-                    auto bcRight = bcRightPhys;
-                }
-                else {
-                    auto bcRight = BCType::SchwarzDirichlet;
-                }
-                // front physical boundary
-                if (j == 0) {
-                    auto bcFront = bcFrontPhys;
-                }
-                else {
-                    auto bcFront = BCType::SchwarzDirichlet;
-                }
-                // back physical boundary
-                if (j == (m_ndomY - 1)) {
-                    auto bcBack = bcBackPhys;
-                }
-                else {
-                    auto bcBack = BCType::SchwarzDirichlet;
-                }
-
-                subdomainVec.emplace_back(
-                    Subdomain<prob_t, order_t, scheme_t, mesh_t, app_t>(
-                        probId, order, scheme, domIdx, meshRoot,
-                        bcLeft, bcFront, bcRight, bcBack,
-                        controlItersVec[domIdx], icflag
-                    )
-                );
-
-            }
-        }
-
-        vector<vector<int>> calc_neighbor_dims()
-        {
-            // determine neighboring domain IDs
-
-            int maxDomNeighbors = 2 * m_dim;
-            vector<vector<int>> exchDomIds(m_ndomains, vector<int>(maxDomNeighbors, -1));
-
-            for (int domIdx = 0; domIdx < m_ndomains; ++domIdx) {
-
-                // subdomain indices
-                int i = {};
-                int j = {};
-                int k = {};
-                i = domIdx % m_ndomX;
-                if (m_dim > 1) {
-                    j = domIdx / m_ndomX;
-                }
-                if (m_dim == 2) {
-                    k = domIdx / (m_ndomX * m_ndomY);
-                }
-
-
-                // 1D, 2D, and 3D
-                // left boundary
-                if (i != 0) {
-                    exchDomIds[domIdx][0] = domIdx - 1;
-                }
-
-                // right boundary
-                if (i != (m_ndomX - 1)) {
-                    // ordering change for 1D vs. 2D/3D faces
-                    if (m_dim == 1) {
-                        exchDomIds[domIdx][1] = domIdx + 1;
-                    }
-                    else {
-                        exchDomIds[domIdx][2] = domIdx + 1;
-                    }
-                }
-
-                // 2D and 3D
-                if (m_dim > 1) {
-                    // front boundary
-                    if (j != (m_ndomY - 1)) {
-                        exchDomIds[domIdx][1] = domIdx + m_ndomX;
-                    }
-
-                    // back boundary
-                    if (j != 0) {
-                        exchDomIds[domIdx][3] = domIdx - m_ndomX;
-                    }
-                }
-
-                // 3D
-                if (m_dim > 2) {
-                    // bottom boundary
-                    if (k != 0) {
-                        exchDomIds[domIdx][4] = domIdx - (m_ndomX * m_ndomY);
-                    }
-
-                    // top boundary
-                    if (k != (m_ndomZ - 1)) {
-                        exchDomIds[domIdx][5] = domIdx + (m_ndomX * m_ndomY);
-                    }
-                }
-
-            }
-
-            return exchDomIds;
 
         }
 
         void check_mesh_compat() {
 
+            const auto & tiling = *m_tiling;
+            const auto exchDomIds = tiling.exchDomIdVec();
+
             // TODO: extend this for differing (but aligned) mesh resolutions
-            if (m_dim == 1) return; // TODO: still need to check for differing 1D resolutions
+            if (tiling.dim() == 1) return; // TODO: still need to check for differing 1D resolutions
 
-            for (int domIdx = 0; domIdx < m_ndomains; ++domIdx) {
+            for (int domIdx = 0; domIdx < tiling.count(); ++domIdx) {
 
-                int nx = subdomainVec[domIdx].nx();
-                int ny = subdomainVec[domIdx].ny();
-                int nz = subdomainVec[domIdx].nz();
+                int nx = m_subdomainVec[domIdx].nx();
+                int ny = m_subdomainVec[domIdx].ny();
+                int nz = m_subdomainVec[domIdx].nz();
 
-                for (int neighIdx = 0; neighIdx < (int) exchDomIdVec[domIdx].size(); ++neighIdx) {
+                for (int neighIdx = 0; neighIdx < (int) exchDomIds[domIdx].size(); ++neighIdx) {
 
-                    int neighDomIdx = exchDomIdVec[domIdx][neighIdx];
+                    int neighDomIdx = exchDomIds[domIdx][neighIdx];
                     if (neighDomIdx == -1) {
                         continue;  // not a Schwarz BC
                     }
 
-                    int nxNeigh = subdomainVec[neighDomIdx].nx();
-                    int nyNeigh = subdomainVec[neighDomIdx].ny();
-                    int nzNeigh = subdomainVec[neighDomIdx].nz();
+                    int nxNeigh = m_subdomainVec[neighDomIdx].nx();
+                    int nyNeigh = m_subdomainVec[neighDomIdx].ny();
+                    int nzNeigh = m_subdomainVec[neighDomIdx].nz();
 
                     string xerr = "Mesh x-dimension mismatch for domains " + to_string(domIdx) + " v " + to_string(neighDomIdx) + ": " + to_string(nx) + " != " + to_string(nxNeigh);
                     string yerr = "Mesh y-dimension mismatch for domains " + to_string(domIdx) + " v " + to_string(neighDomIdx) + ": " + to_string(ny) + " != " + to_string(nyNeigh);
@@ -375,9 +185,7 @@ class SchwarzDecomp
 
         }
 
-        vector<graph_t> calc_exch_graph(
-            const int bcStencil,
-            const vector<vector<int>> & exchDomIds)
+        void calc_exch_graph(const int bcStencil)
         {
             // TODO: extend to 3D
 
@@ -394,17 +202,20 @@ class SchwarzDecomp
             //                 ¦_(13,0)_¦_(14,0)_¦_(15,0)_¦_(16,0)_¦_(17,0)_¦
             //                 ¦_(13,1)_¦_(14,1)_¦_(15,1)_¦_(16,1)_¦_(17,1)_¦
 
-            vector<graph_t> exchGraphs(m_ndomains);
+            const auto & tiling = *m_tiling;
+            m_exchGraphVec.resize(tiling.count());
 
-            for (int domIdx = 0; domIdx < m_ndomains; ++domIdx) {
+            const auto overlap = tiling.overlap();
+            const auto exchDomIds = tiling.exchDomIdVec();
+            for (int domIdx = 0; domIdx < tiling.count(); ++domIdx) {
 
                 // this domain's mesh and dimensions
-                int nx = subdomainVec[domIdx].nx();
-                int ny = subdomainVec[domIdx].ny();
+                int nx = m_subdomainVec[domIdx].nx();
+                int ny = m_subdomainVec[domIdx].ny();
 
                 // TODO: generalize to 3D
-                pda::resize(exchGraphs[domIdx], 2*nx + 2*ny, bcStencil);
-                exchGraphs[domIdx].fill(-1);
+                pda::resize(m_exchGraphVec[domIdx], 2*nx + 2*ny, bcStencil);
+                m_exchGraphVec[domIdx].fill(-1);
 
                 // loop through neighboring domains
                 for (int neighIdx = 0; neighIdx < (int) exchDomIds[domIdx].size(); ++neighIdx) {
@@ -415,8 +226,8 @@ class SchwarzDecomp
                     }
 
                     // neighboring domain mesh and dimensions
-                    int nxNeigh = subdomainVec[neighDomIdx].nx();
-                    int nyNeigh = subdomainVec[neighDomIdx].ny();
+                    int nxNeigh = m_subdomainVec[neighDomIdx].nx();
+                    int nyNeigh = m_subdomainVec[neighDomIdx].ny();
 
                     int exchCellIdx;
 
@@ -426,8 +237,8 @@ class SchwarzDecomp
                         int bcCellIdx = 0; // left boundary is the start
                         for (int yIdx = 0; yIdx < ny; ++yIdx) {
                             for (int stencilIdx = 0; stencilIdx < bcStencil; ++stencilIdx) {
-                            exchCellIdx = (nxNeigh * (yIdx + 1) - 1) - m_overlap - stencilIdx;
-                            exchGraphs[domIdx](bcCellIdx, stencilIdx) = exchCellIdx;
+                            exchCellIdx = (nxNeigh * (yIdx + 1) - 1) - overlap - stencilIdx;
+                            m_exchGraphVec[domIdx](bcCellIdx, stencilIdx) = exchCellIdx;
                             }
                             bcCellIdx++;
                         }
@@ -439,8 +250,8 @@ class SchwarzDecomp
                         int bcCellIdx = ny * bcStencil;  // skip left boundary indices
                         for (int xIdx = 0; xIdx < nx; ++xIdx) {
                             for (int stencilIdx = 0; stencilIdx < bcStencil; ++stencilIdx) {
-                                exchCellIdx = (m_overlap + stencilIdx) * nxNeigh + xIdx;
-                                exchGraphs[domIdx](bcCellIdx, stencilIdx) = exchCellIdx;
+                                exchCellIdx = (overlap + stencilIdx) * nxNeigh + xIdx;
+                                m_exchGraphVec[domIdx](bcCellIdx, stencilIdx) = exchCellIdx;
                             }
                             bcCellIdx++;
                         }
@@ -451,9 +262,8 @@ class SchwarzDecomp
                         int bcCellIdx = (ny + nx) * bcStencil; // skip left and "front" boundary indices
                         for (int yIdx = 0; yIdx < ny; ++yIdx) {
                             for (int stencilIdx = 0; stencilIdx < bcStencil; ++stencilIdx) {
-                                exchCellIdx = nxNeigh * yIdx + m_overlap + stencilIdx;
-                                // TODO: check for a different problem
-                                exchGraphs[domIdx](bcCellIdx, stencilIdx) = exchCellIdx;
+                                exchCellIdx = nxNeigh * yIdx + overlap + stencilIdx;
+                                m_exchGraphVec[domIdx](bcCellIdx, stencilIdx) = exchCellIdx;
                             }
                             bcCellIdx++;
                         }
@@ -461,23 +271,20 @@ class SchwarzDecomp
 
                     // "back"
                     if (neighIdx == 3) {
-                    int bcCellIdx = (2*ny + nx) * bcStencil;  // skip left, "front", and right boundary indices
-                    for (int xIdx = 0; xIdx < nx; ++xIdx) {
-                        for (int stencilIdx = 0; stencilIdx < bcStencil; ++stencilIdx) {
-                        exchCellIdx = (nyNeigh - 1 - m_overlap - stencilIdx) * nxNeigh + xIdx;
-                        exchGraphs[domIdx](bcCellIdx, stencilIdx) = exchCellIdx;
+                        int bcCellIdx = (2*ny + nx) * bcStencil;  // skip left, "front", and right boundary indices
+                        for (int xIdx = 0; xIdx < nx; ++xIdx) {
+                            for (int stencilIdx = 0; stencilIdx < bcStencil; ++stencilIdx) {
+                                exchCellIdx = (nyNeigh - 1 - overlap - stencilIdx) * nxNeigh + xIdx;
+                                m_exchGraphVec[domIdx](bcCellIdx, stencilIdx) = exchCellIdx;
+                            }
+                            bcCellIdx++;
                         }
-                        bcCellIdx++;
-                    }
                     }
 
                     // TODO: generalize to 3D
 
                 } // neighbor loop
             } // domain loop
-
-            return exchGraphs;
-
         }
 
         template<class state_t>
@@ -492,7 +299,7 @@ class SchwarzDecomp
             int exchCellIdx;
 
             for (int bcCellIdx = startIdx; bcCellIdx < endIdx; ++bcCellIdx) {
-                for (int stencilIdx = 0; stencilIdx < bcStencilSize; ++stencilIdx) {
+                for (int stencilIdx = 0; stencilIdx < m_bcStencilSize; ++stencilIdx) {
                     exchCellIdx = exchGraph(bcCellIdx, stencilIdx);
                     for (int dof = 0; dof < m_dofPerCell; ++dof) {
                     bcState((bcCellIdx + stencilIdx) * m_dofPerCell + dof) = intState(exchCellIdx * m_dofPerCell + dof);
@@ -505,7 +312,9 @@ class SchwarzDecomp
         void broadcast_bcState(const int domIdx)
         {
 
-            const auto* domState = &subdomainVec[domIdx].state;
+            const auto & tiling = *m_tiling;
+            const auto & exchDomIdVec = tiling.exchDomIdVec();
+            const auto* domState = &m_subdomainVec[domIdx].m_state;
 
             int startIdx, endIdx;
             for (int neighIdx = 0; neighIdx < (int) exchDomIdVec[domIdx].size(); ++neighIdx) {
@@ -515,10 +324,10 @@ class SchwarzDecomp
                     continue;  // not a Schwarz BC
                 }
 
-                int nxNeigh = subdomainVec[neighDomIdx].nx();
-                int nyNeigh = subdomainVec[neighDomIdx].ny();
-                auto* neighStateBCs = &subdomainVec[neighDomIdx].stateBCs;
-                const auto neighExchGraph = exchGraphVec[neighDomIdx];
+                int nxNeigh = m_subdomainVec[neighDomIdx].nx();
+                int nyNeigh = m_subdomainVec[neighDomIdx].ny();
+                auto* neighStateBCs = &m_subdomainVec[neighDomIdx].m_stateBCs;
+                const auto & neighExchGraph = m_exchGraphVec[neighDomIdx];
 
                 // TODO: extend to 3D, need to change L/R and F/B indices to account for nzNeigh
 
@@ -568,22 +377,24 @@ class SchwarzDecomp
 
         }
 
-        vector<graph_t> calc_ghost_graph()
+        void calc_ghost_graph()
         {
 
-            vector<graph_t> ghostGraphs(m_ndomains);
+            const auto & tiling = *m_tiling;
+            const auto & exchDomIdVec = tiling.exchDomIdVec();
 
-            for (int domIdx = 0; domIdx < m_ndomains; ++domIdx) {
+            m_ghostGraphVec.resize(tiling.count());
+            for (int domIdx = 0; domIdx < tiling.count(); ++domIdx) {
 
-                const auto meshObj = subdomainVec[domIdx].mesh;
+                const auto & meshObj = *(m_subdomainVec[domIdx].m_mesh);
                 const auto intGraph = meshObj.graph();
-                int nx = subdomainVec[domIdx].nx();
-                int ny = subdomainVec[domIdx].ny();
-                // int nz = subdomainVec[domIdx].nz();
+                int nx = m_subdomainVec[domIdx].nx();
+                int ny = m_subdomainVec[domIdx].ny();
+                // int nz = m_subdomainVec[domIdx].nz();
 
                 const auto & rowsBd = meshObj.graphRowsOfCellsNearBd();
-                pda::resize(ghostGraphs[domIdx], int(rowsBd.size()), 2 * m_dim);
-                ghostGraphs[domIdx].fill(-1);
+                pda::resize(m_ghostGraphVec[domIdx], int(rowsBd.size()), 2 * tiling.dim());
+                m_ghostGraphVec[domIdx].fill(-1);
 
                 for (decltype(rowsBd.size()) it = 0; it < rowsBd.size(); ++it) {
 
@@ -605,36 +416,34 @@ class SchwarzDecomp
                     if (left0 == -1) {
                         if (exchDomIdVec[domIdx][0] != -1) {
                             bcCellIdx = rowIdx;
-                            ghostGraphs[domIdx](it, 0) = bcCellIdx * m_dofPerCell;
+                            m_ghostGraphVec[domIdx](it, 0) = bcCellIdx * m_dofPerCell;
                         }
                     }
 
                     if (front0 == -1) {
                         if (exchDomIdVec[domIdx][1] != -1) {
                             bcCellIdx = ny + colIdx;
-                            ghostGraphs[domIdx](it, 1) = bcCellIdx * m_dofPerCell;
+                            m_ghostGraphVec[domIdx](it, 1) = bcCellIdx * m_dofPerCell;
                         }
                     }
 
                     if (right0 == -1) {
                         if (exchDomIdVec[domIdx][2] != -1) {
                             bcCellIdx = ny + nx + rowIdx;
-                            ghostGraphs[domIdx](it, 2) = bcCellIdx * m_dofPerCell;
+                            m_ghostGraphVec[domIdx](it, 2) = bcCellIdx * m_dofPerCell;
                         }
                     }
 
                     if (back0 == -1) {
                         if (exchDomIdVec[domIdx][3] != -1) {
                             bcCellIdx = 2 * ny + nx + colIdx;
-                            ghostGraphs[domIdx](it, 3) = bcCellIdx * m_dofPerCell;
+                            m_ghostGraphVec[domIdx](it, 3) = bcCellIdx * m_dofPerCell;
                         }
                     }
                     // TODO: extend to higher order, 3D
 
                 } // boundary cell loop
             } // domain loop
-
-            return ghostGraphs;
 
         }
 
@@ -683,43 +492,46 @@ class SchwarzDecomp
             const int convergeStepMax)
         {
 
+            const auto & tiling = *m_tiling;
+            const auto ndomains = tiling.count();
+
             // store initial step for resetting if Schwarz iter does not converge
-            for (int domIdx = 0; domIdx < m_ndomains; ++domIdx) {
-                subdomainVec[domIdx].stateHistVec[0] = subdomainVec[domIdx].state;
+            for (int domIdx = 0; domIdx < ndomains; ++domIdx) {
+                m_subdomainVec[domIdx].m_stateHistVec[0] = m_subdomainVec[domIdx].m_state;
             }
 
             // convergence
             int convergeStep = 0;
-            vector<array<double, 2>> convergeVals(m_ndomains);
+            vector<array<double, 2>> convergeVals(ndomains);
             while (convergeStep < convergeStepMax) {
 
                 cout << "Schwarz iteration " << convergeStep + 1 << endl;
 
-                for (int domIdx = 0; domIdx < m_ndomains; ++domIdx) {
+                for (int domIdx = 0; domIdx < ndomains; ++domIdx) {
 
                     // reset to beginning of controller time
                     auto timeDom = time;
-                    auto stepDom = outerStep * controlItersVec[domIdx];
+                    auto stepDom = outerStep * m_controlItersVec[domIdx];
 
-                    const auto dtDom = dt[domIdx];
+                    const auto dtDom = m_dt[domIdx];
                     const auto dtWrap = pode::StepSize<double>(dtDom);
 
                     // controller inner loop
-                    for (int innerStep = 0; innerStep < controlItersVec[domIdx]; ++innerStep) {
+                    for (int innerStep = 0; innerStep < m_controlItersVec[domIdx]; ++innerStep) {
 
                         const auto startTimeWrap = pode::StepStartAt<double>(timeDom);
                         const auto stepWrap = pode::StepCount(stepDom);
 
-                        subdomainVec[domIdx].stepper(subdomainVec[domIdx].state, startTimeWrap, stepWrap, dtWrap, subdomainVec[domIdx].nonlinSolver);
+                        m_subdomainVec[domIdx].m_stepper(m_subdomainVec[domIdx].m_state, startTimeWrap, stepWrap, dtWrap, m_subdomainVec[domIdx].m_nonlinSolver);
 
                         // for last iteration, compute convergence criteria
                         // important to do this before saving history, as stateHistVec still has last convergence loop's state
-                        if (innerStep == (controlItersVec[domIdx] - 1)) {
-                            convergeVals[domIdx] = calcConvergence(subdomainVec[domIdx].state, subdomainVec[domIdx].stateHistVec.back());
+                        if (innerStep == (m_controlItersVec[domIdx] - 1)) {
+                            convergeVals[domIdx] = calcConvergence(m_subdomainVec[domIdx].m_state, m_subdomainVec[domIdx].m_stateHistVec.back());
                         }
 
                         // store intra-step history
-                        subdomainVec[domIdx].stateHistVec[innerStep + 1] = subdomainVec[domIdx].state;
+                        m_subdomainVec[domIdx].m_stateHistVec[innerStep + 1] = m_subdomainVec[domIdx].m_state;
 
                         // set (interpolated) boundary conditions
 
@@ -737,12 +549,12 @@ class SchwarzDecomp
                 // check convergence for all domains, break if conditions met
                 double abs_err = 0.0;
                 double rel_err = 0.0;
-                for (int domIdx = 0; domIdx < m_ndomains; ++domIdx) {
+                for (int domIdx = 0; domIdx < ndomains; ++domIdx) {
                     abs_err += convergeVals[domIdx][0];
                     rel_err += convergeVals[domIdx][1];
                 }
-                abs_err /= m_ndomains;
-                rel_err /= m_ndomains;
+                abs_err /= ndomains;
+                rel_err /= ndomains;
                 cout << "Average abs err: " << abs_err << endl;
                 cout << "Average rel err: " << rel_err << endl;
                 if ((rel_err < rel_err_tol) || (abs_err < abs_err_tol)) {
@@ -752,8 +564,8 @@ class SchwarzDecomp
                 convergeStep++;
 
                 // reset interior state if not converged
-                for (int domIdx = 0; domIdx < m_ndomains; ++domIdx) {
-                    subdomainVec[domIdx].state = subdomainVec[domIdx].stateHistVec[0];
+                for (int domIdx = 0; domIdx < ndomains; ++domIdx) {
+                    m_subdomainVec[domIdx].m_state = m_subdomainVec[domIdx].m_stateHistVec[0];
                 }
 
             } // convergence loop
@@ -763,29 +575,15 @@ class SchwarzDecomp
 
     public:
 
-        int m_ndomains;
-        double dtMax;
-        vector<subdom_t> subdomainVec;
-
-    private:
-
-        // mesh decomposition
-        int m_dim;
-        int m_ndomX = 1;
-        int m_ndomY = 1;
-        int m_ndomZ = 1;
-        int m_overlap;
         int m_dofPerCell;
-
-        // subdomain communication
-        int bcStencilSize;
-        vector<vector<int>> exchDomIdVec;
-        vector<graph_t> exchGraphVec;
-        vector<graph_t> ghostGraphVec;
-
-        // time-stepping
-        vector<double> dt;
-        vector<int> controlItersVec;
+        shared_ptr<const Tiling> m_tiling;
+        vector<SubdomainType> & m_subdomainVec;
+        int m_bcStencilSize;
+        double m_dtMax;
+        vector<double> m_dt;
+        vector<graph_t> m_exchGraphVec;
+        vector<graph_t> m_ghostGraphVec;
+        vector<int> m_controlItersVec;
 
   };
 }

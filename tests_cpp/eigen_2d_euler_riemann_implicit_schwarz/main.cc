@@ -21,6 +21,7 @@ int main()
     const auto probId = pda::Euler2d::Riemann;
     const auto order  = pda::InviscidFluxReconstruction::FirstOrder;
     const auto scheme = pode::StepScheme::CrankNicolson;
+    using app_t = pdas::euler_app_type;
 
     // time stepping
     // const double tf = 1.0;
@@ -32,21 +33,21 @@ int main()
 
     // +++++ END USER INPUTS +++++
 
-    using mesh_t = pda::cellcentered_uniform_mesh_eigen_type;
-    using app_t = decltype(
-        pda::create_problem_eigen(declval<mesh_t>(), probId, order,
-        pdas::BCFunctor(pdas::BCType::Dummy), pdas::BCFunctor(pdas::BCType::Dummy), pdas::BCFunctor(pdas::BCType::Dummy), pdas::BCFunctor(pdas::BCType::Dummy), 1)
-    );
-    using subdom_t = typename pdas::Subdomain<decltype(probId), decltype(order), decltype(scheme), mesh_t, app_t>;
+    // 1. loading tiling info
+    auto tiling = std::make_shared<pdas::Tiling>(meshRoot);
+    tiling->describe();
 
-    // decomposition
-    auto decomp = pdas::SchwarzDecomp<
-        decltype(probId),
-        mesh_t,
-        decltype(order),
-        decltype(scheme),
-        subdom_t
-    >(probId, order, scheme, meshRoot, dt, 2);
+    // 2. create meshes for each tile
+    //    meshes must have a lifetime *longer* than that of decomp
+    auto [meshPaths, meshObjs] = pdas::create_meshes(meshRoot, tiling->count());
+
+    // 3. create "subdomain" instances
+    //    note that subdomains must have a lifetime *longer* than that of decomp
+    auto subdomains = pdas::create_subdomains<app_t>(meshPaths, meshObjs, *tiling, probId,
+                            scheme, order, 2 /*icFlag*/);
+
+    // 4. create decomp operating on a vector of subdomains and use it
+    pdas::SchwarzDecomp decomp(subdomains, tiling, dt);
 
     // observer
     // using state_t = decltype(decomp)::state_t;
@@ -58,7 +59,7 @@ int main()
     // }
 
     // solve
-    const int numSteps = tf / decomp.dtMax;
+    const int numSteps = tf / decomp.m_dtMax;
     double time = 0.0;
     for (int outerStep = 1; outerStep <= numSteps; ++outerStep)
     {
@@ -73,7 +74,7 @@ int main()
             convergeStepMax
         );
 
-        time += decomp.dtMax;
+        time += decomp.m_dtMax;
 
         // output observer
         // const auto stepWrap = pode::StepCount(outerStep);
