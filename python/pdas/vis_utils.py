@@ -4,7 +4,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib as mpl
 
-from pdas.data_utils import load_meshes, load_field_data
+from pdas.data_utils import load_unified_helper
 
 
 mpl.rc("font", family="serif", size="10")
@@ -47,61 +47,17 @@ def plot_contours(
         assert outdir is not None
         if not os.path.isdir(outdir):
             os.mkdir(outdir)
-    if meshlist is not None:
-        if isinstance(meshlist, np.ndarray):
-            meshlist = [meshlist]
-        elif not isinstance(meshlist, list):
-            raise ValueError("meshlist expected to be a list or numpy array")
-    if datalist is not None:
-        if isinstance(datalist, np.ndarray):
-            datalist = [datalist]
-        elif not isinstance(datalist, list):
-            raise ValueError("datalist expected to be a list or numpy array")
-    if isinstance(meshdirs, str):
-        meshdirs = [meshdirs]
-    if isinstance(datadirs, str):
-        datadirs = [datadirs]
 
-    # load meshes, if not provided
-    if meshlist is None:
-        assert meshdirs is not None
-        nmesh = len(meshdirs)
-        meshlist     = [None for _ in range(nmesh)]
-        meshlist_sub = [None for _ in range(nmesh)]
-        for mesh_idx, meshdir in enumerate(meshdirs):
-            meshlist[mesh_idx], meshlist_sub[mesh_idx] = load_meshes(meshdir, merge_decomp=merge_decomp)
-    else:
-        nmesh = len(meshlist)
-
-    # load data, if not provided
-    if datalist is None:
-        assert meshdirs is not None
-        assert datadirs is not None
-        assert dataroot is not None
-        assert nvars is not None
-        ndata = len(datadirs)
-        assert nmesh == ndata
-        assert len(meshdirs) == ndata # in case meshlist was provided
-
-        datalist = [None for _ in range(ndata)]
-        datalist_sub = [None for _ in range(ndata)]
-        for data_idx, datadir in enumerate(datadirs):
-            # is monolithic
-            if meshlist_sub[data_idx] is None:
-                coords_in = meshlist[data_idx]
-            else:
-                coords_in = meshlist_sub[data_idx]
-            datalist[data_idx], datalist_sub[data_idx] = load_field_data(
-                datadir,
-                dataroot,
-                nvars,
-                coords=coords_in,
-                meshdir=meshdirs[data_idx],
-                merge_decomp=merge_decomp,
-            )
-    else:
-        ndata = len(datalist)
-        assert nmesh == ndata
+    meshlist, datalist = load_unified_helper(
+        meshlist,
+        datalist,
+        meshdirs,
+        datadirs,
+        nvars,
+        dataroot,
+        merge_decomp=merge_decomp,
+    )
+    ndata = len(datalist)
 
     # prepping some lists
     if (plotlabels is None) or isinstance(plotlabels, str):
@@ -187,3 +143,95 @@ def plot_contours(
 
     plt.show()
     print("Finished")
+
+
+def plot_lines(
+    ylist,
+    outdir,
+    outname,
+    linecolors,
+    xlist=None,
+    varplot=None,
+    linestyles="-",
+    xlabel=None,
+    ylabel=None,
+    legendlabels=None,
+    legendloc="best",
+    xbounds=[None,None],
+    ybounds=[None,None],
+    figdim=[6.4, 4.8],
+):
+    """
+    Inputs:
+        - xlist: a (list of) 1D array(s)
+        - ylist: a (list of) 1D/2D arrays. If 2D, must provide varplot, and
+            assumed that trailing dimension is variable dimension
+    """
+
+    if not os.path.isdir(outdir):
+        os.mkdir(outdir)
+
+    if not isinstance(ylist, list):
+        ylist = [ylist]
+    nlines = len(ylist)
+
+    if legendlabels is not None:
+        assert len(legendlabels) == nlines
+
+    # must have unique colors for plots
+    if not isinstance(linecolors, list):
+        linecolors = [linecolors]
+    assert len(linecolors) >= nlines
+
+    # non-unique linestyles fine
+    if not isinstance(linestyles, list):
+        linestyles = [linestyles] * nlines
+    assert len(linestyles) >= nlines
+
+    # get 1D arrays
+    for yidx, yarr in enumerate(ylist):
+        assert yarr.ndim <= 2
+
+        if yarr.ndim == 2:
+            assert varplot is not None
+            ylist[yidx] = yarr[:, varplot]
+
+    # check dimensions
+    nvals_list = [y.shape[0] for y in ylist]
+    allsame = all([val == nvals_list[0] for val in nvals_list])
+
+    # handling certain edge cases for xlist
+    # WARNING: may be incorrect if same number of samples but over different range
+    #   Better to just be explicit
+    if xlist is None:
+        assert allsame
+        xlist = [np.arange(ylist[0].shape[0])] * nlines
+    else:
+        if not isinstance(xlist, list):
+            assert allsame
+            xlist = [xlist] * nlines
+    assert len(xlist) == nlines
+
+    # plot
+    fig, ax = plt.subplots(1, 1, figsize=figdim)
+    for line_idx in range(nlines):
+
+        ax.plot(
+            xlist[line_idx], ylist[line_idx],
+            color=linecolors[line_idx], linestyle=linestyles[line_idx]
+        )
+
+
+    if legendlabels is not None:
+        ax.legend(legendlabels, loc=legendloc)
+    ax.set_xlim(xbounds)
+    ax.set_ylim(ybounds)
+    ax.set_xlabel(xlabel)
+    ax.set_ylabel(ylabel)
+
+    plt.tight_layout()
+    outfile = os.path.join(outdir, outname + ".png")
+    print(f"Saving image to {outfile}")
+    plt.savefig(outfile)
+
+    pass
