@@ -32,8 +32,10 @@ struct BCFunctor
         {
             case BCType::Euler2DHomogNeumann:
                 Euler2DHomogNeumannBC(forward<Args>(args)...);
+		break;
             case BCType::SchwarzDirichlet:
                 SchwarzDirichletBC(forward<Args>(args)...);
+		break;
             default:
                 throw runtime_error("Invalid probId for getPhysBCs()");
         };
