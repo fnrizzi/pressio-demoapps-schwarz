@@ -197,8 +197,6 @@ auto create_subdomains(const vector<string> & meshPaths,
     // determine boundary conditions for each subdomain, specify app type
     for (int domIdx = 0; domIdx < ndomains; ++domIdx)
     {
-        cout << " domIdx = " << domIdx << endl;
-
         const int i = domIdx % ndomX;
         const int j = domIdx / ndomX;
 
@@ -230,7 +228,6 @@ auto create_subdomains(const vector<string> & meshPaths,
             bcLeft, bcFront, bcRight, bcBack,
             probId, forward<Args>(args)...)
         );
-        cout << " create_subdomains finished " << endl;
     }
 
     return result;
