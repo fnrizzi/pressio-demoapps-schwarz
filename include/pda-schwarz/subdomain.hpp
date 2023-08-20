@@ -57,8 +57,8 @@ public:
     , m_mesh(&mesh)
     , m_app(make_shared<app_t>(pressiodemoapps::create_problem_eigen(
             mesh, probId, order,
-            BCFunctor(bcLeft),  BCFunctor(bcFront),
-            BCFunctor(bcRight), BCFunctor(bcBack),
+            BCFunctor<mesh_t>(bcLeft),  BCFunctor<mesh_t>(bcFront),
+            BCFunctor<mesh_t>(bcRight), BCFunctor<mesh_t>(bcBack),
             icflag)))
     , m_stepper(pressio::ode::create_implicit_stepper(odeScheme, *m_app))
     , m_linSolverObj(make_shared<linsolver_t>())
@@ -66,7 +66,7 @@ public:
     , m_state(m_app->initialCondition())
     {
         if (order != pressiodemoapps::InviscidFluxReconstruction::FirstOrder){
-            runtime_error("SubdomainFrizzi: inviscid reconstruction must be first oder");
+            runtime_error("Subdomain: inviscid reconstruction must be first oder");
         }
 
         m_nonlinSolver.setStopTolerance(1e-5);
@@ -91,7 +91,7 @@ private:
     {
         // TODO: can presumably remove this when routines generalized to unstructured format
         const int bcStencilSize = (pressiodemoapps::reconstructionTypeToStencilSize(order) - 1) / 2;
-        const int bcStencilDof    = bcStencilSize * app_t::numDofPerCell;
+        const int bcStencilDof = bcStencilSize * app_t::numDofPerCell;
         const int numDofStencilBc = 2 * bcStencilDof * (m_dims[0] + m_dims[1] + m_dims[2]);
         pressiodemoapps::resize(m_stateBCs, numDofStencilBc);
         m_stateBCs.fill(0.0);
@@ -148,6 +148,7 @@ array<int,3> read_mesh_dims(const string & meshPath, int domIdx)
     }
 
     array<int, 3> dims;
+    dims.fill(0); // default
     ifstream source(inFile, ios_base::in);
     string line;
     while (getline(source, line)) {
@@ -187,16 +188,17 @@ auto create_subdomains(const vector<string> & meshPaths,
     const int ndomZ = tiling.countZ();
     const int ndomains = tiling.count();
 
-    // the actual BC used are defaulted to Dirichlet, and modified below
-    // when they need to be physical BCs
-    BCType bcLeft  = BCType::SchwarzDirichlet;
-    BCType bcRight = BCType::SchwarzDirichlet;
-    BCType bcFront = BCType::SchwarzDirichlet;
-    BCType bcBack  = BCType::SchwarzDirichlet;
-
     // determine boundary conditions for each subdomain, specify app type
     for (int domIdx = 0; domIdx < ndomains; ++domIdx)
     {
+
+        // the actual BC used are defaulted to Dirichlet, and modified below
+        // when they need to be physical BCs
+        BCType bcLeft  = BCType::SchwarzDirichlet;
+        BCType bcRight = BCType::SchwarzDirichlet;
+        BCType bcFront = BCType::SchwarzDirichlet;
+        BCType bcBack  = BCType::SchwarzDirichlet;
+
         const int i = domIdx % ndomX;
         const int j = domIdx / ndomX;
 
@@ -210,14 +212,14 @@ auto create_subdomains(const vector<string> & meshPaths,
             bcRight = getPhysBCs(probId, pda::impl::GhostRelativeLocation::Right);
         }
 
-        // front physical boundary
+        // back physical boundary
         if (j == 0) {
-            bcFront = getPhysBCs(probId, pda::impl::GhostRelativeLocation::Front);
+            bcBack = getPhysBCs(probId, pda::impl::GhostRelativeLocation::Back);
         }
 
-        // back physical boundary
+        // front physical boundary
         if (j == (ndomY - 1)) {
-            bcBack = getPhysBCs(probId, pda::impl::GhostRelativeLocation::Back);
+            bcFront = getPhysBCs(probId, pda::impl::GhostRelativeLocation::Front);
         }
 
         // mesh dimensions (non-hyper-reduced only)

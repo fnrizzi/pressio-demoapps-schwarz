@@ -27,12 +27,10 @@ using euler_app_type =
             declval<mesh_t>(),
             declval<pressiodemoapps::Euler2d>(),
             declval<pda::InviscidFluxReconstruction>(),
-            // NOTE: bc functors must be rvalues because in the constructor
-            // of SubdomainFrizzi we construct the app by passing rvalues
-            declval<BCFunctor>(),
-            declval<BCFunctor>(),
-            declval<BCFunctor>(),
-            declval<BCFunctor>(),
+            declval<BCFunctor<mesh_t>>(),
+            declval<BCFunctor<mesh_t>>(),
+            declval<BCFunctor<mesh_t>>(),
+            declval<BCFunctor<mesh_t>>(),
             int() /* initial condition */
         )
     );
@@ -55,11 +53,10 @@ public:
         , m_tiling(tiling)
         , m_subdomainVec(subdomains)
     {
-        cout << " **** decomp constructor: start ***" << endl;
         m_dofPerCell = app_t::numDofPerCell;
 
         setup_controller(dtVec);
-        for (int domIdx = 0; domIdx < subdomains.size(); ++domIdx) {
+        for (int domIdx = 0; domIdx < m_subdomainVec.size(); ++domIdx) {
             m_subdomainVec[domIdx].allocateStorageForHistory(m_controlItersVec[domIdx]);
         }
 
@@ -70,13 +67,14 @@ public:
         calc_exch_graph(m_bcStencilSize);
 
         // first communication
-        for (int domIdx = 0; domIdx < subdomains.size(); ++domIdx) {
-        broadcast_bcState(domIdx);
+        for (int domIdx = 0; domIdx < m_subdomainVec.size(); ++domIdx) {
+            broadcast_bcState(domIdx);
         }
-        // set up ghost filling graph
-        calc_ghost_graph();
 
-        cout << " **** decomp constructor: complete ***" << endl;
+        // set up ghost filling graph, boundary pointers
+        calc_ghost_graph();
+        assignBCPointers();
+
     }
 
 private:
@@ -298,7 +296,7 @@ private:
             for (int stencilIdx = 0; stencilIdx < m_bcStencilSize; ++stencilIdx) {
                 exchCellIdx = exchGraph(bcCellIdx, stencilIdx);
                 for (int dof = 0; dof < m_dofPerCell; ++dof) {
-                bcState((bcCellIdx + stencilIdx) * m_dofPerCell + dof) = intState(exchCellIdx * m_dofPerCell + dof);
+                    bcState((bcCellIdx + stencilIdx) * m_dofPerCell + dof) = intState(exchCellIdx * m_dofPerCell + dof);
                 }
             }
         }
@@ -384,9 +382,12 @@ private:
             int ny = m_subdomainVec[domIdx].ny();
             // int nz = m_subdomainVec[domIdx].nz();
 
+            // unique mask for each subdomain edge
             const auto & rowsBd = meshObj.graphRowsOfCellsNearBd();
-            pda::resize(m_ghostGraphVec[domIdx], int(rowsBd.size()), 2 * tiling.dim());
-            m_ghostGraphVec[domIdx].fill(-1);
+            m_ghostGraphVec[domIdx].resize(2 * tiling.dim());
+            for (int bcIdx = 0; bcIdx < 2 * tiling.dim(); ++bcIdx) {
+                m_ghostGraphVec[domIdx][bcIdx].resize(int(rowsBd.size()), -1);
+            }
 
             for (decltype(rowsBd.size()) it = 0; it < rowsBd.size(); ++it) {
 
@@ -408,34 +409,76 @@ private:
                 if (left0 == -1) {
                     if (exchDomIdVec[domIdx][0] != -1) {
                         bcCellIdx = rowIdx;
-                        m_ghostGraphVec[domIdx](it, 0) = bcCellIdx * m_dofPerCell;
+                        m_ghostGraphVec[domIdx][0][it] = bcCellIdx * m_dofPerCell;
                     }
                 }
 
                 if (front0 == -1) {
                     if (exchDomIdVec[domIdx][1] != -1) {
                         bcCellIdx = ny + colIdx;
-                        m_ghostGraphVec[domIdx](it, 1) = bcCellIdx * m_dofPerCell;
+                        m_ghostGraphVec[domIdx][1][it] = bcCellIdx * m_dofPerCell;
                     }
                 }
 
                 if (right0 == -1) {
                     if (exchDomIdVec[domIdx][2] != -1) {
                         bcCellIdx = ny + nx + rowIdx;
-                        m_ghostGraphVec[domIdx](it, 2) = bcCellIdx * m_dofPerCell;
+                        m_ghostGraphVec[domIdx][2][it] = bcCellIdx * m_dofPerCell;
                     }
                 }
 
                 if (back0 == -1) {
                     if (exchDomIdVec[domIdx][3] != -1) {
                         bcCellIdx = 2 * ny + nx + colIdx;
-                        m_ghostGraphVec[domIdx](it, 3) = bcCellIdx * m_dofPerCell;
+                        m_ghostGraphVec[domIdx][3][it] = bcCellIdx * m_dofPerCell;
                     }
                 }
                 // TODO: extend to higher order, 3D
 
             } // boundary cell loop
         } // domain loop
+    }
+
+    // assign pointers in BCFunctors
+    void assignBCPointers()
+    {
+
+        const auto & tiling = *m_tiling;
+        const auto & exchDomIdVec = tiling.exchDomIdVec();
+
+        for (int domIdx = 0; domIdx < m_subdomainVec.size(); ++domIdx) {
+            for (int neighIdx = 0; neighIdx < (int) exchDomIdVec[domIdx].size(); ++neighIdx) {
+
+                int neighDomIdx = exchDomIdVec[domIdx][neighIdx];
+                    if (neighDomIdx == -1) {
+                    continue;  // not a Schwarz BC
+                }
+
+                // has left neighbor
+                if (neighIdx == 0) {
+                    m_subdomainVec[domIdx].m_app->setBCPointer(pda::impl::GhostRelativeLocation::Left, &m_subdomainVec[domIdx].m_stateBCs);
+                    m_subdomainVec[domIdx].m_app->setBCPointer(pda::impl::GhostRelativeLocation::Left, &m_ghostGraphVec[domIdx][0]);
+                }
+
+                // has front neighbor
+                if (neighIdx == 1) {
+                    m_subdomainVec[domIdx].m_app->setBCPointer(pda::impl::GhostRelativeLocation::Front, &m_subdomainVec[domIdx].m_stateBCs);
+                    m_subdomainVec[domIdx].m_app->setBCPointer(pda::impl::GhostRelativeLocation::Front, &m_ghostGraphVec[domIdx][1]);
+                }
+
+                // has right neighbor
+                if (neighIdx == 2) {
+                    m_subdomainVec[domIdx].m_app->setBCPointer(pda::impl::GhostRelativeLocation::Right, &m_subdomainVec[domIdx].m_stateBCs);
+                    m_subdomainVec[domIdx].m_app->setBCPointer(pda::impl::GhostRelativeLocation::Right, &m_ghostGraphVec[domIdx][2]);
+                }
+
+                // has back neighbor
+                if (neighIdx == 3) {
+                    m_subdomainVec[domIdx].m_app->setBCPointer(pda::impl::GhostRelativeLocation::Back, &m_subdomainVec[domIdx].m_stateBCs);
+                    m_subdomainVec[domIdx].m_app->setBCPointer(pda::impl::GhostRelativeLocation::Back, &m_ghostGraphVec[domIdx][3]);
+                }
+            }
+        }
     }
 
     template <class state_t>
@@ -572,7 +615,7 @@ public:
     double m_dtMax;
     vector<double> m_dt;
     vector<graph_t> m_exchGraphVec;
-    vector<graph_t> m_ghostGraphVec;
+    vector<vector<vector<int>>> m_ghostGraphVec; // 1: subdomain index, 2: edge index, 3: cell index
     vector<int> m_controlItersVec;
 
 };

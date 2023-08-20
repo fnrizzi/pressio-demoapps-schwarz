@@ -18,16 +18,37 @@ enum class BCType {
     SchwarzDirichlet,
 };
 
+template<class mesh_t>
 struct BCFunctor
 {
-    BCType bcSwitch;
+    using graph_t  = typename mesh_t::graph_t;
+    using scalar_t = typename mesh_t::scalar_t;
+    // TODO: not sure if there's a way to template state_t, since app type is templated on BCFunctor (circular?)
+    using state_t  = Eigen::Matrix<scalar_t,-1,1>;
 
-    BCFunctor(BCType bcSwitchIn) : bcSwitch(bcSwitchIn){}
+    BCType m_bcSwitch;
+
+    // m_stateBcs is shared by EVERY BCFunctor
+    // m_graphBcs is a unique mask on m_stateBcs, for each BCFunctor
+    // This is because BCFunctor has no internal left/right/front/back reference, and
+    //  only understand position in graph from GLOBAL (subdomain) cell index
+    state_t* m_stateBcs = nullptr;
+    vector<int>* m_graphBcs = nullptr;
+
+    BCFunctor(BCType bcSwitch) : m_bcSwitch(bcSwitch){}
+
+    void setIntPtr(state_t* stateBcs){
+        m_stateBcs = stateBcs;
+    }
+
+    void setIntPtr(vector<int>* graphBcs){
+        m_graphBcs = graphBcs;
+    }
 
     template<class ...Args>
     void operator()(Args && ... args) const
     {
-        switch(bcSwitch)
+        switch(m_bcSwitch)
         {
             case BCType::Euler2DHomogNeumann:
                 Euler2DHomogNeumannBC(forward<Args>(args)...);
@@ -73,12 +94,22 @@ private:
     =========================*/
 
     template<class ConnecRowType, class StateT, class T>
-    void SchwarzDirichletBC(const int /*unused*/, ConnecRowType const & connectivityRow,
+    void SchwarzDirichletBC(const int gRow, ConnecRowType const & connectivityRow,
                             const double cellX, const double cellY,
                             const StateT & currentState, int numDofPerCell,
                             const double cellWidth, T & ghostValues) const
     {
-        runtime_error("Schwarz BC not implemented");
+        // TODO: any way to only check this once? Seems wasteful.
+        if ((m_stateBcs == nullptr) || (m_graphBcs == nullptr)) {
+            runtime_error("m_stateBcs or m_graphBcs not set");
+        }
+
+        const auto bcIndex = (*m_graphBcs)[gRow];
+        ghostValues[0] = (*m_stateBcs)(bcIndex+0);
+        ghostValues[1] = (*m_stateBcs)(bcIndex+1);
+        ghostValues[2] = (*m_stateBcs)(bcIndex+2);
+        ghostValues[3] = (*m_stateBcs)(bcIndex+3);
+
     }
 
     template<class ConnecRowType, class FactorsType>
@@ -95,16 +126,15 @@ private:
     DEFAULT SPECIFICATIONS
 =============================*/
 
-// 2D Euler
 auto getPhysBCs(pda::Euler2d probId, pda::impl::GhostRelativeLocation rloc)
 {
     // Riemann
     switch(probId)
     {
-        case pda::Euler2d::Riemann:{
+        case pda::Euler2d::Riemann:
             // All boundaries are homogeneous Neumann
             return BCType::Euler2DHomogNeumann;
-        }
+            break;
 
         default:
             throw runtime_error("Invalid probId for getPhysBCs()");
