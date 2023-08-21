@@ -13,18 +13,17 @@ int main()
 
     // +++++ USER INPUTS +++++
     string meshRoot = "./mesh";
-    // string meshRoot = "/home/crwentl/research/runs/pressio/riemann/meshes/mesh_1x1";
     string obsRoot = "riemann2d_solution";
-    const int obsFreq = 1;
+    const int obsFreq = 2;
 
     // problem definition
     const auto probId = pda::Euler2d::Riemann;
     const auto order  = pda::InviscidFluxReconstruction::FirstOrder;
     const auto scheme = pode::StepScheme::CrankNicolson;
+    using app_t = pdas::euler2d_app_type;
 
     // time stepping
-    // const double tf = 1.0;
-    const double tf = 0.005;
+    const double tf = 1.0;
     vector<double> dt(1, 0.005);
     const int convergeStepMax = 10;
     const double abs_err_tol = 1e-11;
@@ -32,33 +31,23 @@ int main()
 
     // +++++ END USER INPUTS +++++
 
-    using mesh_t = pda::cellcentered_uniform_mesh_eigen_type;
-    using app_t = decltype(
-        pda::create_problem_eigen(declval<mesh_t>(), probId, order,
-        pdas::BCFunctor(pdas::BCType::Dummy), pdas::BCFunctor(pdas::BCType::Dummy), pdas::BCFunctor(pdas::BCType::Dummy), pdas::BCFunctor(pdas::BCType::Dummy), 1)
-    );
-    using subdom_t = typename pdas::Subdomain<decltype(probId), decltype(order), decltype(scheme), mesh_t, app_t>;
-
-    // decomposition
-    auto decomp = pdas::SchwarzDecomp<
-        decltype(probId),
-        mesh_t,
-        decltype(order),
-        decltype(scheme),
-        subdom_t
-    >(probId, order, scheme, meshRoot, dt, 2);
+    // tiling, meshes, and decomposition
+    auto tiling = std::make_shared<pdas::Tiling>(meshRoot);
+    auto [meshPaths, meshObjs] = pdas::create_meshes(meshRoot, tiling->count());
+    auto subdomains = pdas::create_subdomains<app_t>(meshPaths, meshObjs, *tiling, probId, scheme, order, 2);
+    pdas::SchwarzDecomp decomp(subdomains, tiling, dt);
 
     // observer
-    // using state_t = decltype(decomp)::state_t;
-    // using obs_t = FomObserver<state_t>;
-    // vector<obs_t> obsVec(decomp.ndomains);
-    // for (int domIdx = 0; domIdx < decomp.ndomains; ++domIdx) {
-    //     obsVec[domIdx] = obs_t(obsRoot + "_" + to_string(domIdx) + ".bin", obsFreq);
-    //     obsVec[domIdx](::pressio::ode::StepCount(0), 0.0, decomp.stateVec[domIdx]);
-    // }
+    using state_t = decltype(decomp)::state_t;
+    using obs_t = FomObserver<state_t>;
+    vector<obs_t> obsVec((*decomp.m_tiling).count());
+    for (int domIdx = 0; domIdx < (*decomp.m_tiling).count(); ++domIdx) {
+        obsVec[domIdx] = obs_t(obsRoot + "_" + to_string(domIdx) + ".bin", obsFreq);
+        obsVec[domIdx](::pressio::ode::StepCount(0), 0.0, decomp.m_subdomainVec[domIdx].m_state);
+    }
 
     // solve
-    const int numSteps = tf / decomp.dtMax;
+    const int numSteps = tf / decomp.m_dtMax;
     double time = 0.0;
     for (int outerStep = 1; outerStep <= numSteps; ++outerStep)
     {
@@ -73,17 +62,17 @@ int main()
             convergeStepMax
         );
 
-        time += decomp.dtMax;
+        time += decomp.m_dtMax;
 
         // output observer
-        // const auto stepWrap = pode::StepCount(outerStep);
-        // for (int domIdx = 0; domIdx < decomp.ndomains; ++domIdx) {
-        //     obsVec[domIdx](stepWrap, time, decomp.stateVec[domIdx]);
-        // }
+        if ((outerStep % obsFreq) == 0) {
+            const auto stepWrap = pode::StepCount(outerStep);
+            for (int domIdx = 0; domIdx < (*decomp.m_tiling).count(); ++domIdx) {
+                obsVec[domIdx](stepWrap, time, decomp.m_subdomainVec[domIdx].m_state);
+            }
+        }
 
     }
-
-    cerr << "Finished" << endl;
 
     return 0;
 }
