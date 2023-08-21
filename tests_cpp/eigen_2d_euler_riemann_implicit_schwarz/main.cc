@@ -20,7 +20,7 @@ int main()
     const auto probId = pda::Euler2d::Riemann;
     const auto order  = pda::InviscidFluxReconstruction::FirstOrder;
     const auto scheme = pode::StepScheme::CrankNicolson;
-    using app_t = pdas::euler_app_type;
+    using app_t = pdas::euler2d_app_type;
 
     // time stepping
     const double tf = 1.0;
@@ -73,8 +73,6 @@ int main()
         }
 
     }
-
-    cerr << "Finished" << endl;
 
     return 0;
 }

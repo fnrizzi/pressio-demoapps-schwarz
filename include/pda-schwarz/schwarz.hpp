@@ -22,7 +22,7 @@ namespace pda = pressiodemoapps;
 namespace pode = pressio::ode;
 
 using mesh_t = pressiodemoapps::cellcentered_uniform_mesh_eigen_type;
-using euler_app_type =
+using euler2d_app_type =
     decltype(pda::create_problem_eigen(
             declval<mesh_t>(),
             declval<pressiodemoapps::Euler2d>(),
@@ -32,6 +32,18 @@ using euler_app_type =
             declval<BCFunctor<mesh_t>>(),
             declval<BCFunctor<mesh_t>>(),
             int() /* initial condition */
+        )
+    );
+using swe2d_app_type =
+    decltype(pda::create_problem_eigen(
+            declval<mesh_t>(),
+            declval<pressiodemoapps::Swe2d>(),
+            declval<pda::InviscidFluxReconstruction>(),
+            declval<BCFunctor<mesh_t>>(),
+            declval<BCFunctor<mesh_t>>(),
+            declval<BCFunctor<mesh_t>>(),
+            declval<BCFunctor<mesh_t>>(),
+            int() /* dummy initial condition */
         )
     );
 
@@ -49,11 +61,10 @@ public:
     SchwarzDecomp(vector<SubdomainType> & subdomains,
                 shared_ptr<const Tiling> tiling,
                 vector<double> & dtVec)
-        : m_dofPerCell(app_t::numDofPerCell)
-        , m_tiling(tiling)
+        : m_tiling(tiling)
         , m_subdomainVec(subdomains)
     {
-        m_dofPerCell = app_t::numDofPerCell;
+        m_dofPerCell = m_subdomainVec[0].m_app->numDofPerCell();
 
         setup_controller(dtVec);
         for (int domIdx = 0; domIdx < m_subdomainVec.size(); ++domIdx) {

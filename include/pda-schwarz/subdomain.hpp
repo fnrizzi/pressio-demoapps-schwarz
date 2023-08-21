@@ -91,7 +91,7 @@ private:
     {
         // TODO: can presumably remove this when routines generalized to unstructured format
         const int bcStencilSize = (pressiodemoapps::reconstructionTypeToStencilSize(order) - 1) / 2;
-        const int bcStencilDof = bcStencilSize * app_t::numDofPerCell;
+        const int bcStencilDof = bcStencilSize * m_app->numDofPerCell();
         const int numDofStencilBc = 2 * bcStencilDof * (m_dims[0] + m_dims[1] + m_dims[2]);
         pressiodemoapps::resize(m_stateBCs, numDofStencilBc);
         m_stateBCs.fill(0.0);
