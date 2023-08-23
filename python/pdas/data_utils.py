@@ -1,4 +1,5 @@
 import os
+import struct
 
 import numpy as np
 
@@ -173,6 +174,75 @@ def merge_domain_data(data_list, overlap, cells_list=None, cells_total_list=None
 
     return data_merged
 
+
+def decompose_domain_data(
+    data_single,
+    decomp_list,
+    overlap,
+    is_ts=True,
+    is_ts_decomp=True,
+):
+
+    offset = round(overlap / 2)
+    ndom_list = get_nested_decomp_dims(decomp_list)
+    cells_list, cells_total_list = get_full_dims_from_decomp(decomp_list, overlap, is_ts=is_ts_decomp)
+
+    ndim = len(data_single.shape) - 1
+    if is_ts:
+        ndim -= 1
+
+    # check that total dimensions line up
+    assert all([data_single.shape[dim] == cells_total_list[dim] for dim in range(ndim)])
+
+    data_decomp = [[[None for _ in range(ndom_list[2])] for _ in range(ndom_list[1])] for _ in range(ndom_list[0])]
+
+    ndomains = np.prod(ndom_list)
+    for dom_idx in range(ndomains):
+
+        i = dom_idx % ndom_list[0]
+        j = int(dom_idx / ndom_list[0])
+        k = int(dom_idx / (ndom_list[0] * ndom_list[1]))
+
+        # x-direction
+        if i == 0:
+            start_xidx = 0
+        else:
+            start_xidx = int(np.sum(cells_list[0][:i, 0, 0])) - offset * (2 * i)
+        if i == (ndom_list[0] - 1):
+            end_xidx = cells_total_list[0]
+        else:
+            end_xidx = int(np.sum(cells_list[0][:i+1, 0, 0])) - offset * (2 * i)
+
+        # y-direction
+        if ndim >= 2:
+            if j == 0:
+                start_yidx = 0
+            else:
+                start_yidx = int(np.sum(cells_list[1][0, :j, 0])) - offset * (2 * j)
+            if j == (ndom_list[1] - 1):
+                end_yidx = cells_total_list[1]
+            else:
+                end_yidx = int(np.sum(cells_list[1][0, :j+1, 0])) - offset * (2 * j)
+
+        # z-direction
+        if ndim == 3:
+            if k == 0:
+                start_zidx = 0
+            else:
+                start_zidx = int(np.sum(cells_list[2][0, 0, :k])) - offset * (2 * k)
+            if k == (ndom_list[2] - 1):
+                end_zidx = cells_total_list[2]
+            else:
+                end_zidx = int(np.sum(cells_list[2][0, 0, :k+1])) - offset * (2 * k)
+
+        if ndim == 1:
+            data_decomp[i][j][k] = data_single[start_xidx:end_xidx, :]
+        elif ndim == 2:
+            data_decomp[i][j][k] = data_single[start_xidx:end_xidx, start_yidx:end_yidx, :]
+        else:
+            data_decomp[i][j][k] = data_single[start_xidx:end_xidx, start_yidx:end_yidx, start_zidx:end_zidx, :]
+
+    return data_decomp
 
 def load_info_domain(meshdir):
 
@@ -420,3 +490,19 @@ def load_unified_helper(
         assert nmesh == ndata
 
     return meshlist, datalist
+
+def write_to_binary(data, outfile):
+
+    nrows = data.shape[0]
+    if data.ndim == 1:
+        ncols = 1
+    elif data.ndim == 2:
+        ncols = data.shape[1]
+    else:
+        raise ValueError(f"Unexpected array ndim: {data.ndim}")
+
+    # NOTE: demoapps reads header as size_t, which is 8-byte
+    with open(outfile, "wb") as f:
+        f.write(struct.pack('Q', nrows))
+        f.write(struct.pack('Q', ncols))
+        data.tofile(f)
