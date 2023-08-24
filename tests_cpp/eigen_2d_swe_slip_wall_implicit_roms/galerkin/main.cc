@@ -11,7 +11,6 @@ using namespace std;
 
 int main()
 {
-
     pressio::log::initialize(pressio::logto::terminal);
     pressio::log::setVerbosity({pressio::log::level::debug});
 
@@ -25,7 +24,7 @@ int main()
 
     string transfile = "../../trial_space/center.bin";
     string basisfile = "../../trial_space/basis.bin";
-    const int nmodes = 50;
+    const int nmodes = 25;
 
     constexpr auto order = pda::InviscidFluxReconstruction::FirstOrder;
     auto scheme = pode::StepScheme::BDF1;

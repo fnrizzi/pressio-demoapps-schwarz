@@ -23,9 +23,9 @@ int main()
 
     const auto meshObj = pda::load_cellcentered_uniform_mesh_eigen(".");
 
-    string transfile = "/home/crwentl/research/runs/pressio/testing/pdas_testing/pod_tests/swe/bases/1x1/center_0.bin";
-    string basisfile = "/home/crwentl/research/runs/pressio/testing/pdas_testing/pod_tests/swe/bases/1x1/basis_0.bin";
-    const int nmodes = 100;
+    string transfile = "../../trial_space/center.bin";
+    string basisfile = "../../trial_space/basis.bin";
+    const int nmodes = 25;
 
     constexpr auto order = pda::InviscidFluxReconstruction::FirstOrder;
     auto scheme = pode::StepScheme::BDF1;
@@ -62,7 +62,6 @@ int main()
 
     // observer
     using app_t = decltype(fomSystem);
-    using state_t = typename app_t::state_type;
     StateObserver Obs("swe_slipWall2d_solution.bin", 10);
 
     const double tf = 10.0;
