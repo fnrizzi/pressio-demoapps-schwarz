@@ -5,7 +5,7 @@ import numpy as np
 from scipy.linalg import svd
 
 from pdas.data_utils import load_meshes, load_info_domain, decompose_domain_data
-from pdas.data_utils import load_unified_helper, write_to_binary
+from pdas.data_utils import load_unified_helper, write_to_binary, read_from_binary
 
 
 def center(data_in, centervec=None, method=None):
@@ -13,7 +13,9 @@ def center(data_in, centervec=None, method=None):
 
     if centervec is None:
         assert method is not None
-        if method == "init_cond":
+        if method == "zero":
+            centervec = np.zeros((data_in.shape[0], 1, data_in.shape[-1]), dtype=np.float64)
+        elif method == "init_cond":
             centervec = data_in[:, [0], :]
         elif (method == "mean"):
             centervec = np.mean(data_in, axis=1, keepdims=True)
@@ -79,7 +81,7 @@ def calc_pod_single(
     # TODO: could do scalar POD here
     # flatten variable dimensions
     nsamps = data_proc.shape[1]
-    data_proc = np.transpose(data_proc, (2, 0, 1))
+    data_proc = np.transpose(data_proc, (0, 2, 1))
     data_proc = np.reshape(data_proc, (-1, nsamps), order="C")
 
     # compute POD basis, truncate
@@ -113,6 +115,9 @@ def gen_pod_bases(
     nmodes=None,
 ):
 
+    if not os.path.isdir(outdir):
+        os.mkdir(outdir)
+
     meshlist, datalist = load_unified_helper(
         meshlist,
         datalist,
@@ -124,11 +129,11 @@ def gen_pod_bases(
     )
 
     # if doing decomposed POD, either must be mono solution or share mesh
-    ndata = len(datalist)
-    assert ndata >= 1
+    ndata_in = len(datalist)
+    assert ndata_in >= 1
     if pod_decomp:
 
-        if ndata == 1:
+        if ndata_in == 1:
             assert meshdir_decomp is not None
             _, overlap = load_info_domain(meshdir_decomp)
             _, meshlist_decomp = load_meshes(meshdir_decomp, merge_decomp=False)
@@ -155,7 +160,7 @@ def gen_pod_bases(
         else:
             raise ValueError(f"Unsupported ndim = {ndim}")
 
-
+    ndata_out = len(datalist)
     for data_idx, data in enumerate(datalist):
 
         # compute basis and feature scaling vectors
@@ -169,10 +174,55 @@ def gen_pod_bases(
         )
 
         # write to disk
-        basis_file = os.path.join(outdir, f"basis_{data_idx}.bin")
+        if ndata_out == 1:
+            numstr = ""
+        else:
+            numstr = f"_{data_idx}"
+        basis_file = os.path.join(outdir, f"basis{numstr}.bin")
         write_to_binary(basis, basis_file)
-        center_file = os.path.join(outdir, f"center_{data_idx}.bin")
-        write_to_binary(centervec.flatten(order="F"), center_file)
-        norm_file = os.path.join(outdir, f"norm_{data_idx}.bin")
-        write_to_binary(normvec.flatten(order="F"), norm_file)
+        center_file = os.path.join(outdir, f"center{numstr}.bin")
+        write_to_binary(centervec.flatten(order="C"), center_file)
+        norm_file = os.path.join(outdir, f"norm{numstr}.bin")
+        write_to_binary(normvec.flatten(order="C"), norm_file)
 
+
+def load_reduced_data(
+    datadir,
+    fileroot,
+    nvars,
+    meshdir,
+    trialdir,
+    centerroot,
+    basisroot,
+    nmodes,
+):
+
+    print(f"Loading data from {datadir}")
+
+    # detect monolithic vs decomposed
+    if os.path.isfile(os.path.join(datadir, fileroot + ".bin")):
+
+        print("Monolithic solution detected")
+        coords, coords_sub = load_meshes(meshdir)
+        assert coords_sub is None
+        ndim = coords.shape[-1]
+        meshdims = coords.shape[:-1]
+
+        center_file = os.path.join(trialdir, centerroot + ".bin")
+        center = read_from_binary(center_file)
+        basis_file = os.path.join(trialdir, basisroot + ".bin")
+        basis = read_from_binary(basis_file)[:, :nmodes]
+
+        data_red = np.fromfile(os.path.join(datadir, fileroot + ".bin"))
+        data_red = np.reshape(data_red, (nmodes, -1), order="F")
+
+        data_full = center + basis @ data_red
+        nsnaps = data_full.shape[-1]
+        data_full = np.reshape(data_full, ((nvars,) + meshdims + (nsnaps,)), order="F")
+        data_full = np.transpose(data_full, tuple(np.arange(1,ndim+1)) + (ndim+1, 0,))
+
+    else:
+
+        raise ValueError
+
+    return data_full

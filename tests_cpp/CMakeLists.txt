@@ -16,4 +16,5 @@ include_directories(
 add_subdirectory(eigen_2d_euler_riemann_implicit)
 add_subdirectory(eigen_2d_euler_riemann_implicit_schwarz)
 add_subdirectory(eigen_2d_swe_slip_wall_implicit)
+add_subdirectory(eigen_2d_swe_slip_wall_implicit_roms)
 add_subdirectory(eigen_2d_swe_slip_wall_implicit_schwarz)

@@ -333,9 +333,9 @@ def load_meshes(
         return coords, coords_sub
 
     else:
-        print("Monolithic mesh detected")
         coords = load_mesh_single(meshdir)
         coords_sub = None
+        print("Monolithic mesh detected")
 
     return coords, coords_sub
 
@@ -392,10 +392,10 @@ def load_field_data(
 
     else:
 
-        print("Decomposed solution detected")
-
         assert meshdir is not None
         ndom_list, overlap = load_info_domain(meshdir)
+
+        print("Decomposed solution detected")
 
         if coords is None:
             coords, _ = load_meshes(meshdir, merge_decomp=False)
@@ -505,4 +505,15 @@ def write_to_binary(data, outfile):
     with open(outfile, "wb") as f:
         f.write(struct.pack('Q', nrows))
         f.write(struct.pack('Q', ncols))
-        data.tofile(f)
+        data.astype(np.float64).tofile(f)
+
+def read_from_binary(infile):
+
+    with open(infile, "rb") as f:
+        contents = f.read()
+
+    m, n = struct.unpack("QQ", contents[:16])
+    data = struct.unpack("d"*m*n, contents[16:])
+    data = np.reshape(np.array(data), (m, n), "C")
+
+    return data
