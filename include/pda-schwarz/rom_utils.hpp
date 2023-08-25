@@ -35,7 +35,7 @@ auto read_matrix_from_binary(const string & fileName, int numColsToRead) {
     ifstream fin(fileName, ios::in | ios::binary);
     fin.exceptions(ifstream::failbit | ifstream::badbit);
 
-    // read 2 4-byte integer header, size matrix accordingly
+    // read 2 8-byte integer header, size matrix accordingly
     size_t rows = {};
     size_t cols = {};
     fin.read((char*) (&rows), sizeof(size_t));

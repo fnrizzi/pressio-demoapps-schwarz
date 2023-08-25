@@ -48,27 +48,26 @@ using swe2d_app_type =
     );
 
 
-template<class SubdomainType>
+template<class mesh_t, class app_t>
 class SchwarzDecomp
 {
 
 public:
 
-    using app_t   = typename SubdomainType::app_t;
     using graph_t = typename app_t::mesh_connectivity_graph_type;
     using state_t = typename app_t::state_type;
 
-    SchwarzDecomp(vector<SubdomainType> & subdomains,
+    SchwarzDecomp(vector<shared_ptr<SubdomainBase<mesh_t, app_t>>> & subdomains,
                 shared_ptr<const Tiling> tiling,
                 vector<double> & dtVec)
         : m_tiling(tiling)
         , m_subdomainVec(subdomains)
     {
-        m_dofPerCell = m_subdomainVec[0].m_app->numDofPerCell();
+        m_dofPerCell = m_subdomainVec[0]->m_app->numDofPerCell();
 
         setup_controller(dtVec);
         for (int domIdx = 0; domIdx < m_subdomainVec.size(); ++domIdx) {
-            m_subdomainVec[domIdx].allocateStorageForHistory(m_controlItersVec[domIdx]);
+            m_subdomainVec[domIdx]->allocateStorageForHistory(m_controlItersVec[domIdx]);
         }
 
         // set up communication patterns
@@ -132,9 +131,9 @@ private:
 
         for (int domIdx = 0; domIdx < tiling.count(); ++domIdx) {
 
-            int nx = m_subdomainVec[domIdx].nx();
-            int ny = m_subdomainVec[domIdx].ny();
-            int nz = m_subdomainVec[domIdx].nz();
+            int nx = m_subdomainVec[domIdx]->nx();
+            int ny = m_subdomainVec[domIdx]->ny();
+            int nz = m_subdomainVec[domIdx]->nz();
 
             for (int neighIdx = 0; neighIdx < (int) exchDomIds[domIdx].size(); ++neighIdx) {
 
@@ -143,9 +142,9 @@ private:
                     continue;  // not a Schwarz BC
                 }
 
-                int nxNeigh = m_subdomainVec[neighDomIdx].nx();
-                int nyNeigh = m_subdomainVec[neighDomIdx].ny();
-                int nzNeigh = m_subdomainVec[neighDomIdx].nz();
+                int nxNeigh = m_subdomainVec[neighDomIdx]->nx();
+                int nyNeigh = m_subdomainVec[neighDomIdx]->ny();
+                int nzNeigh = m_subdomainVec[neighDomIdx]->nz();
 
                 string xerr = "Mesh x-dimension mismatch for domains " + to_string(domIdx) + " v " + to_string(neighDomIdx) + ": " + to_string(nx) + " != " + to_string(nxNeigh);
                 string yerr = "Mesh y-dimension mismatch for domains " + to_string(domIdx) + " v " + to_string(neighDomIdx) + ": " + to_string(ny) + " != " + to_string(nyNeigh);
@@ -216,8 +215,8 @@ private:
         for (int domIdx = 0; domIdx < tiling.count(); ++domIdx) {
 
             // this domain's mesh and dimensions
-            int nx = m_subdomainVec[domIdx].nx();
-            int ny = m_subdomainVec[domIdx].ny();
+            int nx = m_subdomainVec[domIdx]->nx();
+            int ny = m_subdomainVec[domIdx]->ny();
 
             // TODO: generalize to 3D
             pda::resize(m_exchGraphVec[domIdx], 2*nx + 2*ny, bcStencil);
@@ -232,8 +231,8 @@ private:
                 }
 
                 // neighboring domain mesh and dimensions
-                int nxNeigh = m_subdomainVec[neighDomIdx].nx();
-                int nyNeigh = m_subdomainVec[neighDomIdx].ny();
+                int nxNeigh = m_subdomainVec[neighDomIdx]->nx();
+                int nyNeigh = m_subdomainVec[neighDomIdx]->ny();
 
                 int exchCellIdx;
 
@@ -317,7 +316,7 @@ private:
     {
         const auto & tiling = *m_tiling;
         const auto & exchDomIdVec = tiling.exchDomIdVec();
-        const auto* domState = &m_subdomainVec[domIdx].m_state;
+        const auto* domState = &m_subdomainVec[domIdx]->m_state;
 
         int startIdx, endIdx;
         for (int neighIdx = 0; neighIdx < (int) exchDomIdVec[domIdx].size(); ++neighIdx) {
@@ -327,9 +326,9 @@ private:
                 continue;  // not a Schwarz BC
             }
 
-            int nxNeigh = m_subdomainVec[neighDomIdx].nx();
-            int nyNeigh = m_subdomainVec[neighDomIdx].ny();
-            auto* neighStateBCs = &m_subdomainVec[neighDomIdx].m_stateBCs;
+            int nxNeigh = m_subdomainVec[neighDomIdx]->nx();
+            int nyNeigh = m_subdomainVec[neighDomIdx]->ny();
+            auto* neighStateBCs = &m_subdomainVec[neighDomIdx]->m_stateBCs;
             const auto & neighExchGraph = m_exchGraphVec[neighDomIdx];
 
             // TODO: extend to 3D, need to change L/R and F/B indices to account for nzNeigh
@@ -387,11 +386,11 @@ private:
         m_ghostGraphVec.resize(tiling.count());
         for (int domIdx = 0; domIdx < tiling.count(); ++domIdx) {
 
-            const auto & meshObj = *(m_subdomainVec[domIdx].m_mesh);
+            const auto & meshObj = *(m_subdomainVec[domIdx]->m_mesh);
             const auto intGraph = meshObj.graph();
-            int nx = m_subdomainVec[domIdx].nx();
-            int ny = m_subdomainVec[domIdx].ny();
-            // int nz = m_subdomainVec[domIdx].nz();
+            int nx = m_subdomainVec[domIdx]->nx();
+            int ny = m_subdomainVec[domIdx]->ny();
+            // int nz = m_subdomainVec[domIdx]->nz();
 
             // unique mask for each subdomain edge
             const auto & rowsBd = meshObj.graphRowsOfCellsNearBd();
@@ -467,26 +466,26 @@ private:
 
                 // has left neighbor
                 if (neighIdx == 0) {
-                    m_subdomainVec[domIdx].m_app->setBCPointer(pda::impl::GhostRelativeLocation::Left, &m_subdomainVec[domIdx].m_stateBCs);
-                    m_subdomainVec[domIdx].m_app->setBCPointer(pda::impl::GhostRelativeLocation::Left, &m_ghostGraphVec[domIdx][0]);
+                    m_subdomainVec[domIdx]->m_app->setBCPointer(pda::impl::GhostRelativeLocation::Left, &m_subdomainVec[domIdx]->m_stateBCs);
+                    m_subdomainVec[domIdx]->m_app->setBCPointer(pda::impl::GhostRelativeLocation::Left, &m_ghostGraphVec[domIdx][0]);
                 }
 
                 // has front neighbor
                 if (neighIdx == 1) {
-                    m_subdomainVec[domIdx].m_app->setBCPointer(pda::impl::GhostRelativeLocation::Front, &m_subdomainVec[domIdx].m_stateBCs);
-                    m_subdomainVec[domIdx].m_app->setBCPointer(pda::impl::GhostRelativeLocation::Front, &m_ghostGraphVec[domIdx][1]);
+                    m_subdomainVec[domIdx]->m_app->setBCPointer(pda::impl::GhostRelativeLocation::Front, &m_subdomainVec[domIdx]->m_stateBCs);
+                    m_subdomainVec[domIdx]->m_app->setBCPointer(pda::impl::GhostRelativeLocation::Front, &m_ghostGraphVec[domIdx][1]);
                 }
 
                 // has right neighbor
                 if (neighIdx == 2) {
-                    m_subdomainVec[domIdx].m_app->setBCPointer(pda::impl::GhostRelativeLocation::Right, &m_subdomainVec[domIdx].m_stateBCs);
-                    m_subdomainVec[domIdx].m_app->setBCPointer(pda::impl::GhostRelativeLocation::Right, &m_ghostGraphVec[domIdx][2]);
+                    m_subdomainVec[domIdx]->m_app->setBCPointer(pda::impl::GhostRelativeLocation::Right, &m_subdomainVec[domIdx]->m_stateBCs);
+                    m_subdomainVec[domIdx]->m_app->setBCPointer(pda::impl::GhostRelativeLocation::Right, &m_ghostGraphVec[domIdx][2]);
                 }
 
                 // has back neighbor
                 if (neighIdx == 3) {
-                    m_subdomainVec[domIdx].m_app->setBCPointer(pda::impl::GhostRelativeLocation::Back, &m_subdomainVec[domIdx].m_stateBCs);
-                    m_subdomainVec[domIdx].m_app->setBCPointer(pda::impl::GhostRelativeLocation::Back, &m_ghostGraphVec[domIdx][3]);
+                    m_subdomainVec[domIdx]->m_app->setBCPointer(pda::impl::GhostRelativeLocation::Back, &m_subdomainVec[domIdx]->m_stateBCs);
+                    m_subdomainVec[domIdx]->m_app->setBCPointer(pda::impl::GhostRelativeLocation::Back, &m_ghostGraphVec[domIdx][3]);
                 }
             }
         }
@@ -542,7 +541,7 @@ public:
 
         // store initial step for resetting if Schwarz iter does not converge
         for (int domIdx = 0; domIdx < ndomains; ++domIdx) {
-            m_subdomainVec[domIdx].m_stateHistVec[0] = m_subdomainVec[domIdx].m_state;
+            m_subdomainVec[domIdx]->m_stateHistVec[0] = m_subdomainVec[domIdx]->m_state;
         }
 
         // convergence
@@ -567,16 +566,17 @@ public:
                     const auto startTimeWrap = pode::StepStartAt<double>(timeDom);
                     const auto stepWrap = pode::StepCount(stepDom);
 
-                    m_subdomainVec[domIdx].m_stepper(m_subdomainVec[domIdx].m_state, startTimeWrap, stepWrap, dtWrap, m_subdomainVec[domIdx].m_nonlinSolver);
+                    // m_subdomainVec[domIdx]->m_stepper(m_subdomainVec[domIdx]->m_state, startTimeWrap, stepWrap, dtWrap, m_subdomainVec[domIdx]->m_nonlinSolver);
+                    m_subdomainVec[domIdx]->doStep(startTimeWrap, stepWrap, dtWrap);
 
                     // for last iteration, compute convergence criteria
                     // important to do this before saving history, as stateHistVec still has last convergence loop's state
                     if (innerStep == (m_controlItersVec[domIdx] - 1)) {
-                        convergeVals[domIdx] = calcConvergence(m_subdomainVec[domIdx].m_state, m_subdomainVec[domIdx].m_stateHistVec.back());
+                        convergeVals[domIdx] = calcConvergence(m_subdomainVec[domIdx]->m_state, m_subdomainVec[domIdx]->m_stateHistVec.back());
                     }
 
                     // store intra-step history
-                    m_subdomainVec[domIdx].m_stateHistVec[innerStep + 1] = m_subdomainVec[domIdx].m_state;
+                    m_subdomainVec[domIdx]->m_stateHistVec[innerStep + 1] = m_subdomainVec[domIdx]->m_state;
 
                     // set (interpolated) boundary conditions
 
@@ -610,7 +610,7 @@ public:
 
             // reset interior state if not converged
             for (int domIdx = 0; domIdx < ndomains; ++domIdx) {
-                m_subdomainVec[domIdx].m_state = m_subdomainVec[domIdx].m_stateHistVec[0];
+                m_subdomainVec[domIdx]->m_state = m_subdomainVec[domIdx]->m_stateHistVec[0];
             }
 
         } // convergence loop
@@ -621,7 +621,7 @@ public:
 
     int m_dofPerCell;
     shared_ptr<const Tiling> m_tiling;
-    vector<SubdomainType> & m_subdomainVec;
+    vector<shared_ptr<SubdomainBase<mesh_t, app_t>>> & m_subdomainVec;
     int m_bcStencilSize;
     double m_dtMax;
     vector<double> m_dt;

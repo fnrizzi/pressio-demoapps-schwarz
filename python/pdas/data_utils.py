@@ -491,7 +491,8 @@ def load_unified_helper(
 
     return meshlist, datalist
 
-def write_to_binary(data, outfile):
+# FIXME: This use of "reverse" is bad, need to figure out proper write order
+def write_to_binary(data, outfile, reverse=False):
 
     nrows = data.shape[0]
     if data.ndim == 1:
@@ -501,10 +502,15 @@ def write_to_binary(data, outfile):
     else:
         raise ValueError(f"Unexpected array ndim: {data.ndim}")
 
+    if reverse:
+        temp = nrows
+        nrows = ncols
+        ncols = temp
+
     # NOTE: demoapps reads header as size_t, which is 8-byte
     with open(outfile, "wb") as f:
-        f.write(struct.pack('Q', nrows))
-        f.write(struct.pack('Q', ncols))
+        np.array([nrows], dtype=np.int64).tofile(f)
+        np.array([ncols], dtype=np.int64).tofile(f)
         data.astype(np.float64).tofile(f)
 
 def read_from_binary(infile):
@@ -514,6 +520,7 @@ def read_from_binary(infile):
 
     m, n = struct.unpack("QQ", contents[:16])
     data = struct.unpack("d"*m*n, contents[16:])
-    data = np.reshape(np.array(data), (m, n), "C")
+    data = np.reshape(np.array(data), (m, n), "F")
 
     return data
+

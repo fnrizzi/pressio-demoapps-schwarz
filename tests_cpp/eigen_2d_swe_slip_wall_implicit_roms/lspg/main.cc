@@ -43,7 +43,13 @@ int main()
     auto basis = pdas::read_matrix_from_binary<scalar_type>(basisfile, nmodes);
     const auto trialSpace = prom::create_trial_column_subspace<
         reduced_state_type>(move(basis), move(trans), true);
+
+    // project initial condition
+    auto state = fomSystem.initialCondition();
+    auto u = pressio::ops::clone(state);
+    pressio::ops::update(u, 0., state, 1, trialSpace.translationVector(), -1);
     auto reducedState = trialSpace.createReducedState();
+    pressio::ops::product(::pressio::transpose(), 1., trialSpace.basisOfTranslatedSpace(), u, 0., reducedState);
 
     // define ROM problem
     auto problem = plspg::create_unsteady_problem(scheme, trialSpace, fomSystem);

@@ -174,12 +174,13 @@ def gen_pod_bases(
         )
 
         # write to disk
-        if ndata_out == 1:
+        if (ndata_out == 1) and (not pod_decomp):
             numstr = ""
         else:
             numstr = f"_{data_idx}"
         basis_file = os.path.join(outdir, f"basis{numstr}.bin")
-        write_to_binary(basis, basis_file)
+        # FIXME: this transpose and "reverse" is bad practice
+        write_to_binary(basis.T, basis_file, reverse=True)
         center_file = os.path.join(outdir, f"center{numstr}.bin")
         write_to_binary(centervec.flatten(order="C"), center_file)
         norm_file = os.path.join(outdir, f"norm{numstr}.bin")
