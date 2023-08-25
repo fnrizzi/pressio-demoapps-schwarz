@@ -71,6 +71,9 @@ public:
     // we set equal to zero to make these purely virtual
     virtual void allocateStorageForHistory(const int) = 0;
     virtual void doStep(pode::StepStartAt<double>, pode::StepCount, pode::StepSize<double>) = 0;
+    virtual void storeStateHistory(const int) = 0;
+    virtual void resetStateFromHistory() = 0;
+    virtual void updateFullState() = 0;
 
 private:
 
@@ -114,7 +117,6 @@ public:
             declval<app_t&>())
         );
 
-    // sparse linear solver
     using lin_solver_tag = pressio::linearsolvers::iterative::Bicgstab;
     using linsolver_t    = pressio::linearsolvers::Solver<lin_solver_tag, jacob_t>;
     using nonlinsolver_t =
@@ -152,6 +154,18 @@ public:
         m_stepper(this->m_state, startTime, step, dt, m_nonlinSolver);
     }
 
+    void storeStateHistory(const int step) final {
+        this->m_stateHistVec[step] = this->m_state;
+    }
+
+    void resetStateFromHistory() final {
+        this->m_state = this->m_stateHistVec[0];
+    }
+
+    void updateFullState() final {
+        // noop
+    }
+
 public:
 
     stepper_t m_stepper;
@@ -160,126 +174,141 @@ public:
 
 };
 
-// template<class mesh_t, class app_type>
-// class SubdomainROM: public SubdomainBase<mesh_t, app_type>
-// {
+template<class mesh_t, class app_type>
+class SubdomainROM: public SubdomainBase<mesh_t, app_type>
+{
 
-//     using app_t    = app_type;
-//     using scalar_t = typename app_t::scalar_type;
-//     using state_t  = typename app_t::state_type;
+    using app_t    = app_type;
+    using scalar_t = typename app_t::scalar_type;
+    using state_t  = typename app_t::state_type;
 
-//     using trans_t = decltype(read_vector_from_binary<scalar_t>(declval<string>()));
-//     using basis_t = decltype(read_matrix_from_binary<scalar_t>(declval<string>(), declval<int>()));
-//     using trial_t = decltype(prom::create_trial_column_subspace<
-//         state_t>(declval<basis_t&&>(), declval<trans_t&&>(), true));
+    using trans_t = decltype(read_vector_from_binary<scalar_t>(declval<string>()));
+    using basis_t = decltype(read_matrix_from_binary<scalar_t>(declval<string>(), declval<int>()));
+    using trial_t = decltype(prom::create_trial_column_subspace<
+        state_t>(declval<basis_t&&>(), declval<trans_t&&>(), true));
 
-// public:
+public:
 
-//     template<class prob_t>
-//     SubdomainROM(const int domainIndex,
-//         const mesh_t & mesh,
-//         const array<int, 3> & meshFullDim,
-//         BCType bcLeft, BCType bcFront,
-//         BCType bcRight, BCType bcBack,
-//         prob_t probId,
-//         pressio::ode::StepScheme odeScheme,
-//         pressiodemoapps::InviscidFluxReconstruction order,
-//         const int icflag,
-//         string & transRoot,
-//         string & basisRoot,
-//         int nmodes)
-//     : SubdomainBase<mesh_t, app_t>::SubdomainBase(domainIndex, mesh, meshFullDim, bcLeft, bcFront, bcRight, bcBack, probId, odeScheme, order, icflag)
-//     , m_nmodes(nmodes)
-//     , m_trans(read_vector_from_binary<scalar_t>(transRoot + "_" + to_string(domainIndex) + ".bin"))
-//     , m_basis(read_matrix_from_binary<scalar_t>(basisRoot + "_" + to_string(domainIndex) + ".bin", nmodes))
-//     , m_trialSpace(prom::create_trial_column_subspace<state_t>(move(m_basis), move(m_trans), true))
-//     , m_stateReduced(m_trialSpace.createReducedState())
-//     {
-//         // project initial conditions
-//         // FIXME: CANNOT ACCESS m_trans or m_basis anymore, since they were moved
-//         // auto u = pressio::ops::clone(this->m_state);
-//         // pressio::ops::update(u, 0., this->m_state, 1, m_trans, -1);
-//         // pressio::ops::product(::pressio::transpose(), 1., m_basis, u, 0., m_stateReduced);
+    template<class prob_t>
+    SubdomainROM(const int domainIndex,
+        const mesh_t & mesh,
+        const array<int, 3> & meshFullDim,
+        BCType bcLeft, BCType bcFront,
+        BCType bcRight, BCType bcBack,
+        prob_t probId,
+        pressio::ode::StepScheme odeScheme,
+        pressiodemoapps::InviscidFluxReconstruction order,
+        const int icflag,
+        const string & transRoot,
+        const string & basisRoot,
+        int nmodes)
+    : SubdomainBase<mesh_t, app_t>::SubdomainBase(domainIndex, mesh, meshFullDim, bcLeft, bcFront, bcRight, bcBack, probId, odeScheme, order, icflag)
+    , m_nmodes(nmodes)
+    , m_trans(read_vector_from_binary<scalar_t>(transRoot + "_" + to_string(domainIndex) + ".bin"))
+    , m_basis(read_matrix_from_binary<scalar_t>(basisRoot + "_" + to_string(domainIndex) + ".bin", nmodes))
+    , m_trialSpace(prom::create_trial_column_subspace<state_t>(move(m_basis), move(m_trans), true))
+    , m_stateReduced(m_trialSpace.createReducedState())
+    {
+        // project initial conditions
+        auto u = pressio::ops::clone(this->m_state);
+        pressio::ops::update(u, 0., this->m_state, 1, m_trialSpace.translationVector(), -1);
+        pressio::ops::product(::pressio::transpose(), 1., m_trialSpace.basis(), u, 0., m_stateReduced);
+        m_trialSpace.mapFromReducedState(m_stateReduced, this->m_state);
 
-//         cerr << "ROM initialized" << endl;
-//         exit(-1);
+    }
 
-//     }
+    void allocateStorageForHistory(const int count){
+        for (int histIdx = 0; histIdx < count + 1; ++histIdx) {
+            this->m_stateHistVec.emplace_back(this->m_app->createState());
+            m_stateReducedHistVec.emplace_back(m_trialSpace.createReducedState());
+        }
+    }
 
-//     void allocateStorageForHistory(const int count){
-//         for (int histIdx = 0; histIdx < count + 1; ++histIdx) {
-//             this->m_stateHistVec.emplace_back(this->m_app->createState());
-//             m_stateReducedHistVec.emplace_back(m_trialSpace.createReducedState());
-//         }
-//     }
+    void storeStateHistory(const int step) final {
+        this->m_stateHistVec[step] = this->m_state;
+        this->m_stateReducedHistVec[step] = this->m_stateReduced;
+    }
 
-// protected:
+    void resetStateFromHistory() final {
+        this->m_state = this->m_stateHistVec[0];
+        this->m_stateReduced = this->m_stateReducedHistVec[0];
+    }
 
-//     int m_nmodes;
-//     trans_t m_trans;
-//     basis_t m_basis;
-//     trial_t m_trialSpace;
-//     state_t m_stateReduced;
-//     vector<state_t> m_stateReducedHistVec;
+    void updateFullState() final {
+        m_trialSpace.mapFromReducedState(m_stateReduced, this->m_state);
+    }
 
-// };
+protected:
 
-// template<class mesh_t, class app_type>
-// class SubdomainLSPG: public SubdomainROM<mesh_t, app_type>
-// {
+    int m_nmodes;
+    trans_t m_trans;
+    basis_t m_basis;
+    trial_t m_trialSpace;
+    state_t m_stateReduced;
+    vector<state_t> m_stateReducedHistVec;
 
-// private:
-//     using app_t    = app_type;
-//     using scalar_t = typename app_t::scalar_type;
-//     using state_t  = typename app_t::state_type;
+};
 
-//     using trans_t = decltype(read_vector_from_binary<scalar_t>(declval<string>()));
-//     using basis_t = decltype(read_matrix_from_binary<scalar_t>(declval<string>(), declval<int>()));
-//     using trial_t = decltype(prom::create_trial_column_subspace<
-//         state_t>(declval<basis_t&&>(), declval<trans_t&&>(), true));
+template<class mesh_t, class app_type>
+class SubdomainLSPG: public SubdomainROM<mesh_t, app_type>
+{
 
-//     using hessian_t   = Eigen::Matrix<scalar_t, -1, -1>; // TODO: generalize?
-//     using solver_tag  = pressio::linearsolvers::direct::HouseholderQR;
-//     using linsolver_t = pressio::linearsolvers::Solver<solver_tag, hessian_t>;
+private:
+    using app_t    = app_type;
+    using scalar_t = typename app_t::scalar_type;
+    using state_t  = typename app_t::state_type;
 
-//     using problem_t       = decltype(plspg::create_unsteady_problem(pressio::ode::StepScheme(), declval<trial_t&>(), declval<app_t&>()));
-//     using stepper_t       = decltype(declval<problem_t>().lspgStepper());
-//     using nonlinsolver_t  = decltype(pressio::create_gauss_newton_solver(declval<stepper_t>(), declval<linsolver_t>()));
+    using trans_t = decltype(read_vector_from_binary<scalar_t>(declval<string>()));
+    using basis_t = decltype(read_matrix_from_binary<scalar_t>(declval<string>(), declval<int>()));
+    using trial_t = decltype(prom::create_trial_column_subspace<
+        state_t>(declval<basis_t&&>(), declval<trans_t&&>(), true));
 
-// public:
+    using hessian_t   = Eigen::Matrix<scalar_t, -1, -1>; // TODO: generalize?
+    using solver_tag  = pressio::linearsolvers::direct::HouseholderQR;
+    using linsolver_t = pressio::linearsolvers::Solver<solver_tag, hessian_t>;
 
-//     template<class prob_t>
-//     SubdomainLSPG(const int domainIndex,
-//         const mesh_t & mesh,
-//         const array<int, 3> & meshFullDim,
-//         BCType bcLeft, BCType bcFront,
-//         BCType bcRight, BCType bcBack,
-//         prob_t probId,
-//         pressio::ode::StepScheme odeScheme,
-//         pressiodemoapps::InviscidFluxReconstruction order,
-//         const int icflag,
-//         string & transRoot,
-//         string & basisRoot,
-//         const int nmodes)
-//     : SubdomainROM<mesh_t, app_type>::SubdomainROM(domainIndex, mesh, meshFullDim,
-//         bcLeft, bcFront, bcRight, bcBack,
-//         probId, odeScheme, order, icflag,
-//         transRoot, basisRoot, nmodes)
-//     , m_problem(plspg::create_unsteady_problem(odeScheme, this->m_trialSpace, *(this->m_app)))
-//     , m_stepper(m_problem.lspgStepper())
-//     , m_linSolverObj(make_shared<linsolver_t>())
-//     , m_nonlinSolver(pressio::create_gauss_newton_solver(m_stepper, *m_linSolverObj))
-//     {
-//         cerr << "LSPG initialized" << endl;
-//     }
+    using problem_t       = decltype(plspg::create_unsteady_problem(pressio::ode::StepScheme(), declval<trial_t&>(), declval<app_t&>()));
+    using stepper_t       = decltype(declval<problem_t>().lspgStepper());
+    using nonlinsolver_t  = decltype(pressio::create_gauss_newton_solver(declval<stepper_t&>(), declval<linsolver_t&>()));
 
-// private:
+public:
 
-//     problem_t m_problem;
-//     stepper_t m_stepper;
-//     shared_ptr<linsolver_t> m_linSolverObj;
-//     nonlinsolver_t m_nonlinSolver;
-// };
+    template<class prob_t>
+    SubdomainLSPG(const int domainIndex,
+        const mesh_t & mesh,
+        const array<int, 3> & meshFullDim,
+        BCType bcLeft, BCType bcFront,
+        BCType bcRight, BCType bcBack,
+        prob_t probId,
+        pressio::ode::StepScheme odeScheme,
+        pressiodemoapps::InviscidFluxReconstruction order,
+        const int icflag,
+        const string & transRoot,
+        const string & basisRoot,
+        const int nmodes)
+    : SubdomainROM<mesh_t, app_type>::SubdomainROM(domainIndex, mesh, meshFullDim,
+        bcLeft, bcFront, bcRight, bcBack,
+        probId, odeScheme, order, icflag,
+        transRoot, basisRoot, nmodes)
+    , m_problem(plspg::create_unsteady_problem(odeScheme, this->m_trialSpace, *(this->m_app)))
+    , m_stepper(m_problem.lspgStepper())
+    , m_linSolverObj(make_shared<linsolver_t>())
+    , m_nonlinSolver(pressio::create_gauss_newton_solver(m_stepper, *m_linSolverObj))
+    {
+
+    }
+
+    void doStep(pode::StepStartAt<double> startTime, pode::StepCount step, pode::StepSize<double> dt) final {
+        m_stepper(this->m_stateReduced, startTime, step, dt, m_nonlinSolver);
+    }
+
+private:
+
+    problem_t m_problem;
+    stepper_t m_stepper;
+    shared_ptr<linsolver_t> m_linSolverObj;
+    nonlinsolver_t m_nonlinSolver;
+};
 
 //
 // auxiliary function to create a vector of meshes given a count and meshRoot
@@ -430,8 +459,10 @@ auto create_subdomains(const vector<string> & meshPaths,
                 probId, odeScheme, order, icFlag));
         }
         else if (domFlagVec[domIdx] == "LSPG") {
-            cerr << "Wrong" << endl;
-            exit(-1);
+            result.emplace_back(make_shared<SubdomainLSPG<mesh_t, app_t>>(domIdx, meshes[domIdx], meshFullDims,
+                bcLeft, bcFront, bcRight, bcBack,
+                probId, odeScheme, order, icFlag,
+                transRoot, basisRoot, nmodesVec[domIdx]));
         }
         else {
             runtime_error("Invalid subdomain flag value: " + domFlagVec[domIdx]);

@@ -541,7 +541,7 @@ public:
 
         // store initial step for resetting if Schwarz iter does not converge
         for (int domIdx = 0; domIdx < ndomains; ++domIdx) {
-            m_subdomainVec[domIdx]->m_stateHistVec[0] = m_subdomainVec[domIdx]->m_state;
+            m_subdomainVec[domIdx]->storeStateHistory(0);
         }
 
         // convergence
@@ -566,17 +566,18 @@ public:
                     const auto startTimeWrap = pode::StepStartAt<double>(timeDom);
                     const auto stepWrap = pode::StepCount(stepDom);
 
-                    // m_subdomainVec[domIdx]->m_stepper(m_subdomainVec[domIdx]->m_state, startTimeWrap, stepWrap, dtWrap, m_subdomainVec[domIdx]->m_nonlinSolver);
                     m_subdomainVec[domIdx]->doStep(startTimeWrap, stepWrap, dtWrap);
+                    m_subdomainVec[domIdx]->updateFullState(); // noop for FOM subdomain
 
                     // for last iteration, compute convergence criteria
                     // important to do this before saving history, as stateHistVec still has last convergence loop's state
+                    // NOTE: this is always computed on the full-order state
                     if (innerStep == (m_controlItersVec[domIdx] - 1)) {
                         convergeVals[domIdx] = calcConvergence(m_subdomainVec[domIdx]->m_state, m_subdomainVec[domIdx]->m_stateHistVec.back());
                     }
 
                     // store intra-step history
-                    m_subdomainVec[domIdx]->m_stateHistVec[innerStep + 1] = m_subdomainVec[domIdx]->m_state;
+                    m_subdomainVec[domIdx]->storeStateHistory(innerStep+1);
 
                     // set (interpolated) boundary conditions
 
@@ -610,7 +611,7 @@ public:
 
             // reset interior state if not converged
             for (int domIdx = 0; domIdx < ndomains; ++domIdx) {
-                m_subdomainVec[domIdx]->m_state = m_subdomainVec[domIdx]->m_stateHistVec[0];
+                m_subdomainVec[domIdx]->resetStateFromHistory();
             }
 
         } // convergence loop

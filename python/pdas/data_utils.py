@@ -398,7 +398,8 @@ def load_field_data(
         print("Decomposed solution detected")
 
         if coords is None:
-            coords, _ = load_meshes(meshdir, merge_decomp=False)
+            _, coords = load_meshes(meshdir, merge_decomp=False)
+            assert coords is not None
         ndomains = np.prod(ndom_list)
 
         sol_sub = [[[None for _ in range(ndom_list[2])] for _ in range(ndom_list[1])] for _ in range(ndom_list[0])]
