@@ -5,6 +5,7 @@ set(exename  ${testname}_exe)
 configure_file(../plot.py plot.py COPYONLY)
 configure_file(../compare.py compare.py COPYONLY)
 configure_file(h_gold.txt h_gold.txt COPYONLY)
+configure_file(solution_full_gold.txt solution_full_gold.txt COPYONLY)
 
 add_executable(${exename} ${CMAKE_CURRENT_SOURCE_DIR}/../main.cc)
 

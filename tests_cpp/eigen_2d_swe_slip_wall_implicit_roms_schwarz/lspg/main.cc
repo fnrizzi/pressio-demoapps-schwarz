@@ -28,12 +28,12 @@ int main()
 
     // ROM definition
     vector<string> domFlagVec(4, "LSPG");
-    string transRoot = "../../trial_space/center";
-    string basisRoot = "../../trial_space/basis";
+    string transRoot = "./trial_space/center";
+    string basisRoot = "./trial_space/basis";
     vector<int> nmodesVec(4, 25);
 
     // time stepping
-    const double tf = 10.0;
+    const double tf = 5.0;
     vector<double> dt(1, 0.01);
     const int convergeStepMax = 10;
     const double abs_err_tol = 1e-11;

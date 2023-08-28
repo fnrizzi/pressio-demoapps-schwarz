@@ -19,11 +19,11 @@ int main()
     // problem definition
     const auto probId = pda::Swe2d::CustomBCs;
     const auto order  = pda::InviscidFluxReconstruction::FirstOrder;
-    const auto scheme = pode::StepScheme::CrankNicolson;
+    const auto scheme = pode::StepScheme::BDF1;
     using app_t = pdas::swe2d_app_type;
 
     // time stepping
-    const double tf = 10.0;
+    const double tf = 5.0;
     vector<double> dt(1, 0.01);
     const int convergeStepMax = 10;
     const double abs_err_tol = 1e-11;

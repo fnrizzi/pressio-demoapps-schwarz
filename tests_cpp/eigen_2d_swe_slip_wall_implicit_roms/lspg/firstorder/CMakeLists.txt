@@ -3,8 +3,9 @@ set(testname eigen_2d_swe_slip_wall_firstorder_implicit_lspg)
 set(exename  ${testname}_exe)
 
 configure_file(../plot.py plot.py COPYONLY)
-#configure_file(../compare.py compare.py COPYONLY)
-#configure_file(h_gold.txt h_gold.txt COPYONLY)
+configure_file(../../gen_trial_space.py gen_trial_space.py COPYONLY)
+configure_file(../compare.py compare.py COPYONLY)
+configure_file(reducedState_gold.txt reducedState_gold.txt COPYONLY)
 
 add_executable(${exename} ${CMAKE_CURRENT_SOURCE_DIR}/../main.cc)
 

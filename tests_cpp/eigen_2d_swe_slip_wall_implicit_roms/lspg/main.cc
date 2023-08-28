@@ -23,8 +23,8 @@ int main()
 
     const auto meshObj = pda::load_cellcentered_uniform_mesh_eigen(".");
 
-    string transfile = "../../trial_space/center.bin";
-    string basisfile = "../../trial_space/basis.bin";
+    string transfile = "./trial_space/center.bin";
+    string basisfile = "./trial_space/basis.bin";
     const int nmodes = 25;
 
     constexpr auto order = pda::InviscidFluxReconstruction::FirstOrder;
@@ -70,7 +70,7 @@ int main()
     using app_t = decltype(fomSystem);
     StateObserver Obs("swe_slipWall2d_solution.bin", 10);
 
-    const double tf = 10.0;
+    const double tf = 5.0;
     const double dt = 0.01;
     const auto Nsteps = pressio::ode::StepCount(tf/dt);
     pode::advance_n_steps(stepper, reducedState, 0.0, dt, Nsteps, Obs, solver);

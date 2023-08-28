@@ -10,6 +10,7 @@ if __name__== "__main__":
   D = np.fromfile("swe_slipWall2d_solution.bin")
   nt = int(np.size(D)/fomTotDofs)
   D = np.reshape(D, (nt, fomTotDofs))
+  np.savetxt("solution_full.txt", D.T)
   D = D[-1, :]
   D = np.reshape(D, (nx*ny, 3))
   h = D[:,0]

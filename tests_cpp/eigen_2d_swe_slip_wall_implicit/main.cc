@@ -11,16 +11,9 @@ int main()
 
   namespace pda = pressiodemoapps;
   const auto meshObj = pda::load_cellcentered_uniform_mesh_eigen(".");
-
-#ifdef USE_WENO5
-  constexpr auto order   = pda::InviscidFluxReconstruction::Weno5;
-#elif defined USE_WENO3
-  constexpr auto order   = pda::InviscidFluxReconstruction::Weno3;
-#else
   constexpr auto order   = pda::InviscidFluxReconstruction::FirstOrder;
-#endif
-
   const auto probId  = pda::Swe2d::SlipWall;
+
   auto appObj = pda::create_problem_eigen(meshObj, probId, order);
   using app_t = decltype(appObj);
   using state_t = typename app_t::state_type;
@@ -29,7 +22,7 @@ int main()
   state_t state = appObj.initialCondition();
 
   auto stepperObj = pressio::ode::create_implicit_stepper(
-    pressio::ode::StepScheme::CrankNicolson, appObj);
+    pressio::ode::StepScheme::BDF1, appObj);
 
   using lin_solver_t = pressio::linearsolvers::Solver<
     pressio::linearsolvers::iterative::Bicgstab, jacob_t>;
@@ -39,7 +32,7 @@ int main()
 
   FomObserver<state_t> Obs("swe_slipWall2d_solution.bin", 10);
 
-  const double tf = 10;
+  const double tf = 5;
   const double dt = 0.01;
   const auto Nsteps = pressio::ode::StepCount(tf/dt);
   pressio::ode::advance_n_steps(stepperObj, state, 0., dt, Nsteps, Obs, NonLinSolver);

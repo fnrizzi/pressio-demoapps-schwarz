@@ -6,6 +6,7 @@ if __name__== "__main__":
   ny = 30
   fomTotDofs = nx*ny*3
 
+  allclose = []
   for dom_idx in range(4):
     D = np.fromfile(f"swe_slipWall2d_solution_{dom_idx}.bin")
     nt = int(np.size(D)/fomTotDofs)
@@ -19,5 +20,7 @@ if __name__== "__main__":
     assert(h.shape == goldD.shape)
     assert(np.isnan(h).all() == False)
     assert(np.isnan(goldD).all() == False)
-    assert(np.allclose(h, goldD, rtol=1e-10, atol=1e-12))
+    allclose.append(np.allclose(h, goldD, rtol=1e-10, atol=1e-12))
+
+assert all(allclose)
 
