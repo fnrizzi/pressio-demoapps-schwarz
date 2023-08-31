@@ -39,10 +39,10 @@ jobs:
 
     steps:
       - name: Clone pressio-demoapps-schwarz repository
-      - uses: actions/checkout@v2
+        uses: actions/checkout@v2
 
       - name: Clone pressio-demoapps repository, develop branch
-      - uses: actions/checkout@v2
+        uses: actions/checkout@v2
         with:
           repository: Pressio/pressio-demoapps
           path: ${PDA_SRC}
