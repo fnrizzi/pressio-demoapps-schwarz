@@ -87,7 +87,7 @@ jobs:
       - name: Install pdas Python utilities
         run: |
           cd ${{ github.workspace }}/python
-          pip install -e .
+          pip install .
 
       - name: Configure C++ tests
         run: |
