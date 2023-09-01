@@ -54,7 +54,6 @@ int main()
     // define ROM problem
     auto problem = plspg::create_unsteady_problem(scheme, trialSpace, fomSystem);
     auto stepper = problem.lspgStepper();
-    using stepperType = decltype(stepper);
 
     // define solver
     using hessian_t       = Eigen::Matrix<scalar_type, -1, -1>;
@@ -67,7 +66,6 @@ int main()
     solver.setStopTolerance(1e-5);
 
     // observer
-    using app_t = decltype(fomSystem);
     StateObserver Obs("swe_slipWall2d_solution.bin", 10);
 
     const double tf = 5.0;

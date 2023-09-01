@@ -413,7 +413,7 @@ auto create_subdomains(const vector<string> & meshPaths,
 
     const int ndomX = tiling.countX();
     const int ndomY = tiling.countY();
-    const int ndomZ = tiling.countZ();
+    // const int ndomZ = tiling.countZ();
     const int ndomains = tiling.count();
 
     // determine boundary conditions for each subdomain, specify app type
