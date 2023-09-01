@@ -33,7 +33,8 @@ jobs:
 
     env: # environment variables available to all steps
       CXX: ${{ matrix.config.cxx }}
-      APT_PACKAGES: g++ clang gpg wget
+      APT_PACKAGES: python3 pip python-is-python3 g++ clang gpg wget
+      PIP_PACKAGES: numpy scipy matplotlib
       PDA_SRC: ${{ github.workspace }}/pressio-demoapps
       BUILD_DIR: ${{ github.workspace }}/build
 
@@ -78,6 +79,10 @@ jobs:
           echo ======================================================
           git --version
           git status
+
+      - name: Install Python modules
+        run: |
+          sudo pip install $PIP_PACKAGES
 
       - name: Configure C++ tests
         run: |
