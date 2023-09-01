@@ -92,10 +92,12 @@ jobs:
       - name: Build C++ tests
         run: |
           export NUM_CPU=$(grep -c processor /proc/cpuinfo)
-          cmake --build $BUILD_DIR -j $NUM_CPU
+          cmake --build $BUILD_DIR
+          #cmake --build $BUILD_DIR -j $NUM_CPU
 
       - name: Run tests
         run: |
           export NUM_CPU=$(grep -c processor /proc/cpuinfo)
           cd $BUILD_DIR
-          ctest -j $NUM_CPU --output-on-failure
+          ctest --output-on-failure
+          #ctest -j $NUM_CPU --output-on-failure
