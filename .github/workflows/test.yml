@@ -83,6 +83,8 @@ jobs:
       - name: Install Python modules
         run: |
           sudo pip install $PIP_PACKAGES
+          python3 -m pip install --upgrade pip
+          python3 -m pip install --upgrade setuptools
 
       - name: Install pdas Python utilities
         run: |
@@ -103,8 +105,7 @@ jobs:
       - name: Build C++ tests
         run: |
           export NUM_CPU=$(grep -c processor /proc/cpuinfo)
-          cmake --build $BUILD_DIR
-          #cmake --build $BUILD_DIR -j $NUM_CPU
+          cmake --build $BUILD_DIR -j $NUM_CPU
 
       - name: Run tests
         run: |
