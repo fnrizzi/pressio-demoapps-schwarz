@@ -28,8 +28,10 @@ jobs:
       # - mode: build mode inside Pressio (Debug / Release)
       matrix:
         config:
+          - { cxx: g++,     mode: Release }
+          - { cxx: g++,     mode: Debug }
           - { cxx: clang++, mode: Release }
-          #- { cxx: g++,     mode: Release }
+          - { cxx: clang++, mode: Debug }
 
     env: # environment variables available to all steps
       CXX: ${{ matrix.config.cxx }}
@@ -105,12 +107,10 @@ jobs:
       - name: Build C++ tests
         run: |
           export NUM_CPU=$(grep -c processor /proc/cpuinfo)
-          cmake --build $BUILD_DIR
-          #cmake --build $BUILD_DIR -j $NUM_CPU
+          cmake --build $BUILD_DIR -j $NUM_CPU
 
       - name: Run tests
         run: |
           export NUM_CPU=$(grep -c processor /proc/cpuinfo)
           cd $BUILD_DIR
-          ctest --output-on-failure
-          #ctest -j $NUM_CPU --output-on-failure
+          ctest -j $NUM_CPU --output-on-failure
