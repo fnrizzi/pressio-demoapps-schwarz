@@ -66,7 +66,7 @@ public:
         m_dofPerCell = m_subdomainVec[0]->m_app->numDofPerCell();
 
         setup_controller(dtVec);
-        for (int domIdx = 0; domIdx < m_subdomainVec.size(); ++domIdx) {
+        for (int domIdx = 0; domIdx < (int) m_subdomainVec.size(); ++domIdx) {
             m_subdomainVec[domIdx]->allocateStorageForHistory(m_controlItersVec[domIdx]);
         }
 
@@ -77,7 +77,7 @@ public:
         calc_exch_graph(m_bcStencilSize);
 
         // first communication
-        for (int domIdx = 0; domIdx < m_subdomainVec.size(); ++domIdx) {
+        for (int domIdx = 0; domIdx < (int) m_subdomainVec.size(); ++domIdx) {
             broadcast_bcState(domIdx);
         }
 
@@ -456,7 +456,7 @@ private:
         const auto & tiling = *m_tiling;
         const auto & exchDomIdVec = tiling.exchDomIdVec();
 
-        for (int domIdx = 0; domIdx < m_subdomainVec.size(); ++domIdx) {
+        for (int domIdx = 0; domIdx < (int) m_subdomainVec.size(); ++domIdx) {
             for (int neighIdx = 0; neighIdx < (int) exchDomIdVec[domIdx].size(); ++neighIdx) {
 
                 int neighDomIdx = exchDomIdVec[domIdx][neighIdx];
