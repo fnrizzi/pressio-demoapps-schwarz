@@ -43,7 +43,8 @@ using swe2d_app_type =
             declval<BCFunctor<mesh_t>>(),
             declval<BCFunctor<mesh_t>>(),
             declval<BCFunctor<mesh_t>>(),
-            int() /* dummy initial condition */
+            int(), /* dummy initial */
+            std::unordered_map<std::string, typename mesh_t::scalar_type>() /* user parameters */
         )
     );
 

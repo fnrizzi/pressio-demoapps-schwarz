@@ -29,10 +29,11 @@ int main()
 
     constexpr auto order = pda::InviscidFluxReconstruction::FirstOrder;
     auto scheme = pode::StepScheme::BDF1;
+    const int icFlag = 1;
 
     // create fomSystem
     const auto probId  = pda::Swe2d::SlipWall;
-    auto fomSystem = pda::create_problem_eigen(meshObj, probId, order);
+    auto fomSystem = pda::create_problem_eigen(meshObj, probId, order, icFlag);
 
     using FomSystemType = decltype(fomSystem);
     using scalar_type = FomSystemType::scalar_type;

@@ -44,7 +44,8 @@ protected:
         prob_t probId,
         pressio::ode::StepScheme odeScheme,
         pressiodemoapps::InviscidFluxReconstruction order,
-        const int icflag)
+        const int icflag,
+        const std::unordered_map<std::string, typename mesh_t::scalar_type> & userParams)
     : m_domIdx(domainIndex)
     , m_dims(meshFullDim)
     , m_mesh(&mesh)
@@ -52,7 +53,7 @@ protected:
             mesh, probId, order,
             BCFunctor<mesh_t>(bcLeft),  BCFunctor<mesh_t>(bcFront),
             BCFunctor<mesh_t>(bcRight), BCFunctor<mesh_t>(bcBack),
-            icflag)))
+            icflag, userParams)))
     , m_state(m_app->initialCondition())
     {
         if (order != pressiodemoapps::InviscidFluxReconstruction::FirstOrder){
@@ -134,8 +135,9 @@ public:
         prob_t probId,
         pressio::ode::StepScheme odeScheme,
         pressiodemoapps::InviscidFluxReconstruction order,
-        const int icflag)
-    : SubdomainBase<mesh_t, app_t>::SubdomainBase(domainIndex, mesh, meshFullDim, bcLeft, bcFront, bcRight, bcBack, probId, odeScheme, order, icflag)
+        const int icflag,
+        const std::unordered_map<std::string, typename mesh_t::scalar_type> & userParams)
+    : SubdomainBase<mesh_t, app_t>::SubdomainBase(domainIndex, mesh, meshFullDim, bcLeft, bcFront, bcRight, bcBack, probId, odeScheme, order, icflag, userParams)
     , m_stepper(pressio::ode::create_implicit_stepper(odeScheme, *(this->m_app)))
     , m_linSolverObj(make_shared<linsolver_t>())
     , m_nonlinSolver(pressio::create_newton_solver(m_stepper, *m_linSolverObj))
@@ -199,10 +201,11 @@ public:
         pressio::ode::StepScheme odeScheme,
         pressiodemoapps::InviscidFluxReconstruction order,
         const int icflag,
+        const std::unordered_map<std::string, typename mesh_t::scalar_type> & userParams,
         const string & transRoot,
         const string & basisRoot,
         int nmodes)
-    : SubdomainBase<mesh_t, app_t>::SubdomainBase(domainIndex, mesh, meshFullDim, bcLeft, bcFront, bcRight, bcBack, probId, odeScheme, order, icflag)
+    : SubdomainBase<mesh_t, app_t>::SubdomainBase(domainIndex, mesh, meshFullDim, bcLeft, bcFront, bcRight, bcBack, probId, odeScheme, order, icflag, userParams)
     , m_nmodes(nmodes)
     , m_trans(read_vector_from_binary<scalar_t>(transRoot + "_" + to_string(domainIndex) + ".bin"))
     , m_basis(read_matrix_from_binary<scalar_t>(basisRoot + "_" + to_string(domainIndex) + ".bin", nmodes))
@@ -283,12 +286,13 @@ public:
         pressio::ode::StepScheme odeScheme,
         pressiodemoapps::InviscidFluxReconstruction order,
         const int icflag,
+        const std::unordered_map<std::string, typename mesh_t::scalar_type> & userParams,
         const string & transRoot,
         const string & basisRoot,
         const int nmodes)
     : SubdomainROM<mesh_t, app_type>::SubdomainROM(domainIndex, mesh, meshFullDim,
         bcLeft, bcFront, bcRight, bcBack,
-        probId, odeScheme, order, icflag,
+        probId, odeScheme, order, icflag, userParams,
         transRoot, basisRoot, nmodes)
     , m_problem(plspg::create_unsteady_problem(odeScheme, this->m_trialSpace, *(this->m_app)))
     , m_stepper(m_problem.lspgStepper())
@@ -376,7 +380,8 @@ auto create_subdomains(const vector<string> & meshPaths,
                        prob_t probId,
                        pode::StepScheme odeScheme,
                        pressiodemoapps::InviscidFluxReconstruction order,
-                       int icFlag = 0)
+                       int icFlag = 0,
+                       const std::unordered_map<std::string, typename app_t::scalar_type> & userParams = {})
 {
     auto ndomains = tiling.count();
     vector<string> domFlagVec(ndomains, "FOM");
@@ -384,7 +389,7 @@ auto create_subdomains(const vector<string> & meshPaths,
 
     return create_subdomains<app_t>(meshPaths, meshes, tiling,
         probId, odeScheme, order,
-        domFlagVec, "", "", nmodesVec, icFlag);
+        domFlagVec, "", "", nmodesVec, icFlag, userParams);
 
 }
 
@@ -402,7 +407,8 @@ auto create_subdomains(const vector<string> & meshPaths,
                        const string & transRoot,
                        const string & basisRoot,
                        const vector<int> & nmodesVec,
-                       int icFlag = 0)
+                       int icFlag = 0,
+                       const std::unordered_map<std::string, typename app_t::scalar_type> & userParams = {})
 {
 
     // add checks that vectors are all same size?
@@ -456,12 +462,12 @@ auto create_subdomains(const vector<string> & meshPaths,
         if (domFlagVec[domIdx] == "FOM") {
             result.emplace_back(make_shared<SubdomainFOM<mesh_t, app_t>>(domIdx, meshes[domIdx], meshFullDims,
                 bcLeft, bcFront, bcRight, bcBack,
-                probId, odeScheme, order, icFlag));
+                probId, odeScheme, order, icFlag, userParams));
         }
         else if (domFlagVec[domIdx] == "LSPG") {
             result.emplace_back(make_shared<SubdomainLSPG<mesh_t, app_t>>(domIdx, meshes[domIdx], meshFullDims,
                 bcLeft, bcFront, bcRight, bcBack,
-                probId, odeScheme, order, icFlag,
+                probId, odeScheme, order, icFlag, userParams,
                 transRoot, basisRoot, nmodesVec[domIdx]));
         }
         else {
