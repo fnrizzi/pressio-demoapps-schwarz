@@ -59,7 +59,8 @@ int main()
             time,
             rel_err_tol,
             abs_err_tol,
-            convergeStepMax
+            convergeStepMax,
+            false
         );
 
         time += decomp.m_dtMax;

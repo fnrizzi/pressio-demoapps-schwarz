@@ -533,7 +533,8 @@ public:
         double time,
         const double rel_err_tol,
         const double abs_err_tol,
-        const int convergeStepMax)
+        const int convergeStepMax,
+        const bool additive)
     {
 
         const auto & tiling = *m_tiling;
@@ -587,8 +588,10 @@ public:
 
                 } // domain loop
 
-                // broadcast boundary conditions
-                broadcast_bcState(domIdx);
+                // broadcast boundary conditions immediately for multiplicative Schwarz
+                if (!additive) {
+                    broadcast_bcState(domIdx);
+                }
 
             }
 
@@ -605,6 +608,13 @@ public:
             cout << "Average rel err: " << rel_err << endl;
             if ((rel_err < rel_err_tol) || (abs_err < abs_err_tol)) {
                 break;
+            }
+
+            // broadcast boundary conditions after domain cycle for additive Schwarz
+            if (additive) {
+                for (int domIdx = 0; domIdx < ndomains; ++domIdx) {
+                    broadcast_bcState(domIdx);
+                }
             }
 
             convergeStep++;
