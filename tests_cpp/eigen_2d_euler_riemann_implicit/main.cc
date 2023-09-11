@@ -11,6 +11,7 @@ int main()
 
   namespace pda = pressiodemoapps;
   const auto meshObj = pda::load_cellcentered_uniform_mesh_eigen(".");
+  const int icFlag = 2;
 
 #ifdef USE_WENO5
   constexpr auto order   = pda::InviscidFluxReconstruction::Weno5;
@@ -21,7 +22,7 @@ int main()
 #endif
 
   const auto probId  = pda::Euler2d::Riemann;
-  auto appObj = pda::create_problem_eigen(meshObj, probId, order, 2);
+  auto appObj = pda::create_problem_eigen(meshObj, probId, order, icFlag);
   using app_t = decltype(appObj);
   using state_t = typename app_t::state_type;
   using jacob_t = typename app_t::jacobian_type;

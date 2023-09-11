@@ -13,8 +13,9 @@ int main()
   const auto meshObj = pda::load_cellcentered_uniform_mesh_eigen(".");
   constexpr auto order   = pda::InviscidFluxReconstruction::FirstOrder;
   const auto probId  = pda::Swe2d::SlipWall;
+  int icFlag = 1;
 
-  auto appObj = pda::create_problem_eigen(meshObj, probId, order);
+  auto appObj = pda::create_problem_eigen(meshObj, probId, order, icFlag);
   using app_t = decltype(appObj);
   using state_t = typename app_t::state_type;
   using jacob_t = typename app_t::jacobian_type;

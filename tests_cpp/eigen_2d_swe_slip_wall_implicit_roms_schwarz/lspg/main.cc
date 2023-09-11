@@ -24,6 +24,7 @@ int main()
     const auto probId = pda::Swe2d::CustomBCs;
     const auto order  = pda::InviscidFluxReconstruction::FirstOrder;
     const auto scheme = pode::StepScheme::BDF1;
+    const int icFlag  = 1;
     using app_t = pdas::swe2d_app_type;
 
     // ROM definition
@@ -46,7 +47,7 @@ int main()
     auto [meshPaths, meshObjs] = pdas::create_meshes(meshRoot, tiling->count());
     auto subdomains = pdas::create_subdomains<app_t>(
         meshPaths, meshObjs, *tiling, probId, scheme, order,
-        domFlagVec, transRoot, basisRoot, nmodesVec, 2);
+        domFlagVec, transRoot, basisRoot, nmodesVec, icFlag);
     pdas::SchwarzDecomp decomp(subdomains, tiling, dt);
 
     // observer

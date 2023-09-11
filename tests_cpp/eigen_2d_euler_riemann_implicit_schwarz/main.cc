@@ -20,6 +20,7 @@ int main()
     const auto probId = pda::Euler2d::Riemann;
     const auto order  = pda::InviscidFluxReconstruction::FirstOrder;
     const auto scheme = pode::StepScheme::CrankNicolson;
+    const int icFlag = 2;
     using app_t = pdas::euler2d_app_type;
 
     // time stepping
@@ -34,7 +35,7 @@ int main()
     // tiling, meshes, and decomposition
     auto tiling = std::make_shared<pdas::Tiling>(meshRoot);
     auto [meshPaths, meshObjs] = pdas::create_meshes(meshRoot, tiling->count());
-    auto subdomains = pdas::create_subdomains<app_t>(meshPaths, meshObjs, *tiling, probId, scheme, order, 2);
+    auto subdomains = pdas::create_subdomains<app_t>(meshPaths, meshObjs, *tiling, probId, scheme, order, icFlag);
     pdas::SchwarzDecomp decomp(subdomains, tiling, dt);
 
     // observer
