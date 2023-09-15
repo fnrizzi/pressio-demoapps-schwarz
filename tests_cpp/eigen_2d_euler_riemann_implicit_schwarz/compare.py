@@ -12,6 +12,8 @@ if __name__== "__main__":
   ny=30
   fomTotDofs = nx*ny*4
 
+  allclose_rho = []
+  allclose_p   = []
   for dom_idx in range(4):
     D = np.fromfile(f"riemann2d_solution_{dom_idx}.bin")
     nt = int(np.size(D)/fomTotDofs)
@@ -29,10 +31,13 @@ if __name__== "__main__":
     assert(rho.shape == goldR.shape)
     assert(np.isnan(rho).all() == False)
     assert(np.isnan(goldR).all() == False)
-    assert(np.allclose(rho, goldR,rtol=1e-10, atol=1e-12))
+    allclose_rho.append(np.allclose(rho, goldR,rtol=1e-10, atol=1e-12))
 
     goldP = np.loadtxt(f"p_gold_{dom_idx}.txt")
     assert(p.shape == goldP.shape)
     assert(np.isnan(p).all() == False)
     assert(np.isnan(goldP).all() == False)
-    assert(np.allclose(p, goldP,rtol=1e-10, atol=1e-12))
+    allclose_p.append(np.allclose(p, goldP,rtol=1e-10, atol=1e-12))
+
+assert all(allclose_rho)
+assert all(allclose_p)

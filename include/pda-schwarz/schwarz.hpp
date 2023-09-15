@@ -31,7 +31,8 @@ using euler2d_app_type =
             declval<BCFunctor<mesh_t>>(),
             declval<BCFunctor<mesh_t>>(),
             declval<BCFunctor<mesh_t>>(),
-            int() /* initial condition */
+            int(), /* initial condition */
+            std::unordered_map<std::string, typename mesh_t::scalar_type>() /* user parameters */
         )
     );
 using swe2d_app_type =
