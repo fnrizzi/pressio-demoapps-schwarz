@@ -59,6 +59,8 @@ int main()
         obsVec[domIdx](::pressio::ode::StepCount(0), 0.0, decomp.m_subdomainVec[domIdx]->m_state);
     }
 
+    RuntimeObserver obs_time("runtime.bin", (*tiling).count());
+
     // solve
     const int numSteps = tf / decomp.m_dtMax;
     double time = 0.0;
@@ -67,7 +69,7 @@ int main()
         cout << "Step " << outerStep << endl;
 
         // compute contoller step until convergence
-        decomp.calc_controller_step(
+        auto runtimeIter = decomp.calc_controller_step(
             outerStep,
             time,
             rel_err_tol,
@@ -85,6 +87,9 @@ int main()
                 obsVec[domIdx](stepWrap, time, decomp.m_subdomainVec[domIdx]->m_state);
             }
         }
+
+        // runtime observer
+        obs_time(runtimeIter);
 
     }
 
