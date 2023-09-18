@@ -3,6 +3,7 @@
 #include "pressio/ode_advancers.hpp"
 #include "pressiodemoapps/swe2d.hpp"
 #include "../../observer.hpp"
+#include <chrono>
 #include "pressio/rom_subspaces.hpp"
 #include "pressio/rom_lspg_unsteady.hpp"
 #include "pda-schwarz/rom_utils.hpp"
@@ -68,11 +69,18 @@ int main()
 
     // observer
     StateObserver Obs("swe_slipWall2d_solution.bin", 10);
+    RuntimeObserver Obs_run("runtime.bin");
 
     const double tf = 5.0;
     const double dt = 0.01;
     const auto Nsteps = pressio::ode::StepCount(tf/dt);
+
+    auto runtimeStart = std::chrono::high_resolution_clock::now();
     pode::advance_n_steps(stepper, reducedState, 0.0, dt, Nsteps, Obs, solver);
+    auto runtimeEnd = std::chrono::high_resolution_clock::now();
+    auto nsElapsed = std::chrono::duration_cast<std::chrono::nanoseconds>(runtimeEnd - runtimeStart).count();
+    double secElapsed = static_cast<double>(nsElapsed) * 1e-9;
+    Obs_run(secElapsed);
 
     pressio::log::finalize();
     return 0;

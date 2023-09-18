@@ -3,6 +3,7 @@
 #include "pressio/ode_advancers.hpp"
 #include "pressiodemoapps/euler2d.hpp"
 #include "../observer.hpp"
+#include <chrono>
 
 int main()
 {
@@ -32,11 +33,18 @@ int main()
     NonLinSolver.setStopTolerance(1e-5);
 
     FomObserver<state_t> Obs("riemann2d_solution.bin", 2);
+    RuntimeObserver Obs_run("runtime.bin");
 
     const double tf = 1.0;
     const double dt = 0.005;
     const auto Nsteps = pressio::ode::StepCount(tf/dt);
+
+    auto runtimeStart = std::chrono::high_resolution_clock::now();
     pressio::ode::advance_n_steps(stepperObj, state, 0., dt, Nsteps, Obs, NonLinSolver);
+    auto runtimeEnd = std::chrono::high_resolution_clock::now();
+    auto nsElapsed = std::chrono::duration_cast<std::chrono::nanoseconds>(runtimeEnd - runtimeStart).count();
+    double secElapsed = static_cast<double>(nsElapsed) * 1e-9;
+    Obs_run(secElapsed);
 
     pressio::log::finalize();
     return 0;
