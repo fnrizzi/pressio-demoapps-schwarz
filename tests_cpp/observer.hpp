@@ -65,51 +65,49 @@ private:
     const int sampleFreq_ = {};
 };
 
-// This can really only be used with the Schwarz framework,
-//      can't be used with the original PDA stepper
 class RuntimeObserver
 {
-    public:
-        RuntimeObserver(const std::string & f0, int nDomains_in = 1)
-            : timeFile_(f0, std::ios::out | std::ios::binary)
-            , nDomains_(static_cast<std::size_t>(nDomains_in))
-        {
-            // 8-byte file header indicating number of domains
-            timeFile_.write(reinterpret_cast<const char*>(&nDomains_), sizeof(std::size_t));
-        }
+public:
+    RuntimeObserver(const std::string & f0, int nDomains_in = 1)
+        : timeFile_(f0, std::ios::out | std::ios::binary)
+        , nDomains_(static_cast<std::size_t>(nDomains_in))
+    {
+        // 8-byte file header indicating number of domains
+        timeFile_.write(reinterpret_cast<const char*>(&nDomains_), sizeof(std::size_t));
+    }
 
-        ~RuntimeObserver() { timeFile_.close(); }
+    ~RuntimeObserver() { timeFile_.close(); }
 
-        void operator() (std::vector<std::vector<double>> & runtimeVec)
-        {
-            // runtimeVec has dimensions (nDomains, nIters)
-            // record all dimensions with header indicating number of iterations
+    void operator() (std::vector<std::vector<double>> & runtimeVec)
+    {
+        // runtimeVec has dimensions (nDomains, nIters)
+        // record all dimensions with header indicating number of iterations
 
-            // 8-byte record header indicating number of subiterations in this iteration
-            std::size_t niters = runtimeVec[0].size();
-            timeFile_.write(reinterpret_cast<const char*>(&niters), sizeof(std::size_t));
+        // 8-byte record header indicating number of subiterations in this iteration
+        std::size_t niters = runtimeVec[0].size();
+        timeFile_.write(reinterpret_cast<const char*>(&niters), sizeof(std::size_t));
 
-            // unroll iterations, then domain order
-            for (int iterIdx = 0; iterIdx < niters; ++iterIdx) {
-                for (int domIdx = 0; domIdx < nDomains_; ++domIdx) {
-                    timeFile_.write(reinterpret_cast<const char*>(&runtimeVec[domIdx][iterIdx]), sizeof(double));
-                }
+        // unroll iterations, then domain order
+        for (int iterIdx = 0; iterIdx < niters; ++iterIdx) {
+            for (int domIdx = 0; domIdx < nDomains_; ++domIdx) {
+                timeFile_.write(reinterpret_cast<const char*>(&runtimeVec[domIdx][iterIdx]), sizeof(double));
             }
-
         }
 
-        void operator() (double runtimeVal)
-        {
-            // Overload for handling non-Schwarz input, have to manually time it and pass total runtime
-            // Just write it as if there's one iteration, one domain
-            std::size_t one = static_cast<std::size_t>(1);
-            timeFile_.write(reinterpret_cast<const char*>(&one), sizeof(std::size_t));
-            timeFile_.write(reinterpret_cast<const char*>(&runtimeVal), sizeof(double));
-        }
+    }
 
-    private:
-        std::ofstream timeFile_;
-        std::size_t nDomains_;
+    void operator() (double runtimeVal)
+    {
+        // Overload for handling non-Schwarz input, have to manually time it and pass total runtime
+        // Just write it as if there's one iteration, one domain
+        std::size_t one = static_cast<std::size_t>(1);
+        timeFile_.write(reinterpret_cast<const char*>(&one), sizeof(std::size_t));
+        timeFile_.write(reinterpret_cast<const char*>(&runtimeVal), sizeof(double));
+    }
+
+private:
+    std::ofstream timeFile_;
+    std::size_t nDomains_;
 };
 
 #endif
