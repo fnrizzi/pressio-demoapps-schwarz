@@ -12,6 +12,7 @@
 #include <iostream>
 #include <fstream>
 #include <sstream>
+#include <chrono>
 
 
 using namespace std;
@@ -530,7 +531,7 @@ private:
 
 public:
 
-    void calc_controller_step(
+    std::vector<std::vector<double>> calc_controller_step(
         int outerStep,
         double time,
         const double rel_err_tol,
@@ -549,7 +550,8 @@ public:
 
         // convergence
         int convergeStep = 0;
-        vector<array<double, 2>> convergeVals(ndomains);
+        std::vector<std::array<double, 2>> convergeVals(ndomains);
+        std::vector<std::vector<double>> iterTime(ndomains);
         while (convergeStep < convergeStepMax) {
 
             cout << "Schwarz iteration " << convergeStep + 1 << endl;
@@ -562,6 +564,8 @@ public:
 
                 const auto dtDom = m_dt[domIdx];
                 const auto dtWrap = pode::StepSize<double>(dtDom);
+
+                auto runtimeStart = std::chrono::high_resolution_clock::now();
 
                 // controller inner loop
                 for (int innerStep = 0; innerStep < m_controlItersVec[domIdx]; ++innerStep) {
@@ -595,6 +599,11 @@ public:
                     broadcast_bcState(domIdx);
                 }
 
+                // record iteration runtime (in seconds)
+                auto runtimeEnd = std::chrono::high_resolution_clock::now();
+                double nsElapsed = static_cast<double>(std::chrono::duration_cast<std::chrono::nanoseconds>(runtimeEnd - runtimeStart).count());
+                iterTime[domIdx].emplace_back(nsElapsed * 1e-9);
+
             }
 
             // check convergence for all domains, break if conditions met
@@ -627,6 +636,9 @@ public:
             }
 
         } // convergence loop
+
+        return iterTime;
+
     }
 
 
