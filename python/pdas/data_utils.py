@@ -492,6 +492,40 @@ def load_unified_helper(
 
     return meshlist, datalist
 
+
+def euler_calc_pressure(
+    gamma,
+    meshlist=None,
+    datalist=None,
+    meshdirs=None,
+    datadirs=None,
+    nvars=None,
+    dataroot=None,
+    merge_decomp=True,
+):
+
+    _, datalist = load_unified_helper(
+        meshlist,
+        datalist,
+        meshdirs,
+        datadirs,
+        nvars,
+        dataroot,
+        merge_decomp=merge_decomp,
+    )
+
+    pressurelist = [None for _ in range(len(datalist))]
+    for data_idx, data in enumerate(datalist):
+
+        ndim = data.ndim - 2
+        if ndim == 2:
+            mom_mag = np.sum(np.square(data[:, :, :, 1:3]), axis=3)
+            pressurelist[data_idx] = (gamma - 1.0) * (data[:, :, :, 3] - 0.5 * mom_mag / data[:, :, :, 0])[:, :, :, None]
+        else:
+            raise ValueError(f"Invalid dimension: {ndim}")
+
+    return pressurelist
+
 # FIXME: This use of "reverse" is bad, need to figure out proper write order
 def write_to_binary(data, outfile, reverse=False):
 

@@ -3,6 +3,35 @@ import numpy as np
 
 from pdas.data_utils import load_unified_helper
 
+
+def calc_shared_samp_interval(
+    dtlist=None,
+    samplist=None,
+    ndata=1,
+):
+    if (dtlist is not None) and (samplist is not None):
+        if isinstance(dtlist, list):
+            assert len(dtlist) == ndata
+            dtlist = np.array(dtlist, dtype=np.float64)
+        else:
+            dtlist = dtlist * np.ones(ndata, dtype=np.float64)
+        if isinstance(samplist, list):
+            assert len(samplist) == ndata
+            samplist = np.array(samplist, dtype=np.float64)
+        else:
+            samplist = samplist * np.ones(ndata, dtype=np.float64)
+
+        # make sure there's a universally shared interval
+        samplengths = dtlist * samplist
+        sampintervals = np.amax(samplengths) / samplengths
+        assert all([samp.is_integer() for samp in sampintervals])
+        sampintervals = sampintervals.astype(np.int32)
+
+    else:
+        sampintervals = np.ones(ndata, dtype=np.int32)
+
+    return samplengths, sampintervals
+
 def calc_error_fields(
     meshlist=None,
     datalist=None,
@@ -31,26 +60,11 @@ def calc_error_fields(
 
     # If samplist and dtlist provided, comparison interval is explicit
     # Otherwise, same dt and sampling interval assumed
-    if (dtlist is not None) and (samplist is not None):
-        if isinstance(dtlist, list):
-            assert len(dtlist) == ndata
-            dtlist = np.array(dtlist, dtype=np.float64)
-        else:
-            dtlist = dtlist * np.ones(ndata, dtype=np.float64)
-        if isinstance(samplist, list):
-            assert len(samplist) == ndata
-            samplist = np.array(samplist, dtype=np.float64)
-        else:
-            samplist = samplist * np.ones(ndata, dtype=np.float64)
-
-        # make sure there's a universally shared interval
-        samplengths = dtlist * samplist
-        sampintervals = np.amax(samplengths) / samplengths
-        assert all([samp.is_integer() for samp in sampintervals])
-        sampintervals = sampintervals.astype(np.int32)
-
-    else:
-        sampintervals = np.ones(ndata, dtype=np.int32)
+    samplengths, sampintervals = calc_shared_samp_interval(
+        dtlist=dtlist,
+        samplist=samplist,
+        ndata=ndata,
+    )
 
     # compute SIGNED errors (comparison - truth, not absolute)
     errorlist = []
@@ -112,8 +126,6 @@ def calc_error_norms(
         )
         # only need the truth value
         datatruth = datalist[0]
-    else:
-        relfacs = 1.0
 
     if errorlist is None:
         errorlist, samptimes = calc_error_fields(
@@ -141,17 +153,28 @@ def calc_error_norms(
     space_axes = tuple(range(ndim))
     time_axis = ndim
 
+    # need same sampling rate for time norm
+    if relative and timenorm:
+        _, sampintervals = calc_shared_samp_interval(
+            dtlist=dtlist,
+            samplist=samplist,
+            ndata=len(datalist),
+        )
+
     # relative error scaling factors
     if relative:
         if timenorm:
-            relfacs = np.linalg.norm(datatruth, ord=2, axis=time_axis, keepdims=True)
+            relfacs = np.linalg.norm(datatruth[:, :, ::sampintervals[0], :], ord=2, axis=time_axis, keepdims=True)
+        else:
+            relfacs = datatruth.copy()
         if spacenorm:
-            relfacs = np.linalg.norm(datatruth, ord=2, axis=space_axes, keepdims=True)
-
-    breakpoint()
+            relfacs = np.linalg.norm(relfacs, ord=2, axis=space_axes, keepdims=True)
+    else:
+        relfacs = 1.0
 
     # compute norms
     for error_idx, error in enumerate(errorlist):
+
         if timenorm:
             error = np.linalg.norm(error, ord=2, axis=time_axis, keepdims=True)
         if spacenorm:

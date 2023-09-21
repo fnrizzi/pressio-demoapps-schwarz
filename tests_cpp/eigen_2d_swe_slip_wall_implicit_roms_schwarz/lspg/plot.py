@@ -1,6 +1,5 @@
 
 from pdas.data_utils import load_field_data
-from pdas.prom_utils import load_reduced_data
 from pdas.vis_utils import plot_contours
 
 # ----- START USER INPUTS -----

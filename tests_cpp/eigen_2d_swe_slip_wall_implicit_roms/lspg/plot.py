@@ -40,9 +40,10 @@ rom_data = load_reduced_data(
     "swe_slipWall2d_solution",
     3,
     "./",
-    "../../trial_space/",
-    "center",
+    "./trial_space/",
     "basis",
+    "center",
+    "norm",
     25,
 )
 
