@@ -175,10 +175,13 @@ def calc_error_norms(
     # compute norms
     for error_idx, error in enumerate(errorlist):
 
-        if timenorm:
-            error = np.linalg.norm(error, ord=2, axis=time_axis, keepdims=True)
-        if spacenorm:
-            error = np.linalg.norm(error, ord=2, axis=space_axes, keepdims=True)
-        errorlist[error_idx] = np.squeeze(error / relfacs)
+        if np.isnan(error).any():
+            errorlist[error_idx] = 1.0
+        else:
+            if timenorm:
+                error = np.linalg.norm(error, ord=2, axis=time_axis, keepdims=True)
+            if spacenorm:
+                error = np.linalg.norm(error, ord=2, axis=space_axes, keepdims=True)
+            errorlist[error_idx] = np.squeeze(error / relfacs)
 
     return errorlist, samptimes

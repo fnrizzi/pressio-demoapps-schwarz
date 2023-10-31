@@ -4,7 +4,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib as mpl
 
-from pdas.data_utils import load_unified_helper
+from pdas.data_utils import load_unified_helper, calc_mesh_bounds
 from pdas.prom_utils import load_pod_basis
 
 
@@ -35,7 +35,7 @@ def plot_contours(
     plotskip=1,
     stopiter=-1,
     varlabel=None,
-    plotbounds=True,
+    plotbounds=False,
     bound_colors=None,
     figdim_base=[6.4, 4.8],
     vertical=True,
@@ -61,6 +61,11 @@ def plot_contours(
         merge_decomp=merge_decomp,
     )
     ndata = len(datalist)
+
+    if plotbounds:
+        assert meshdirs is not None
+        assert len(meshdirs) == ndata
+        dom_bounds = calc_mesh_bounds(meshdirs)
 
     # prepping some lists
     if (plotlabels is None) or isinstance(plotlabels, str):
@@ -114,6 +119,17 @@ def plot_contours(
             # plot non-combined decomposed solution
             else:
                 raise ValueError("Decomposed solution plotting not implemented")
+
+            # plot domain boundaries
+            if plotbounds:
+                if dom_bounds[plotnum] is not None:
+                    for dom_idx, bounds in enumerate(dom_bounds[plotnum]):
+                        ax[plotnum].plot(
+                            [bounds[0][0], bounds[0][1], bounds[0][1], bounds[0][0], bounds[0][0]],
+                            [bounds[1][0], bounds[1][0], bounds[1][1], bounds[1][1], bounds[1][0]],
+                            color=bound_colors[dom_idx],
+                            linestyle="--",
+                        )
 
             ax[plotnum].set_title(plotlabels[plotnum], fontsize=18)
             ax[plotnum].tick_params(axis='both', which='major', labelsize=14)
