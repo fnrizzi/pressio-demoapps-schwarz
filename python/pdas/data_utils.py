@@ -298,6 +298,42 @@ def load_mesh_single(meshdir):
     return coords
 
 
+def calc_mesh_bounds(meshdirs):
+
+    if isinstance(meshdirs, str):
+        meshdirs = [meshdirs]
+    assert isinstance(meshdirs, list)
+    nmeshes = len(meshdirs)
+
+    bounds = [None for _ in range(nmeshes)]
+    for mesh_idx, meshdir in enumerate(meshdirs):
+        # check if it's a decomposed mesh
+        if os.path.isfile(os.path.join(meshdir, "info_domain.dat")):
+            is_decomp = True
+        else:
+            is_decomp = False
+
+        # load mesh
+        coords, coords_sub = load_meshes(meshdir, merge_decomp=False)
+        if is_decomp:
+            bounds[mesh_idx] = []
+            for k in range(len(coords_sub[0][0])):
+                for j in range(len(coords_sub[0])):
+                    for i in range(len(coords_sub)):
+                        ndim = coords_sub[i][j][k].shape[-1]
+                        if ndim == 2:
+                            x = coords_sub[i][j][k][:, :, 0]
+                            y = coords_sub[i][j][k][:, :, 1]
+                            bounds[mesh_idx].append([
+                                [np.amin(x), np.amax(x)],
+                                [np.amin(y), np.amax(y)],
+                            ])
+                        else:
+                            raise ValueError(f"Invalid dimension: {ndim}")
+
+    return bounds
+
+
 def load_meshes(
     meshdir,
     merge_decomp=True,
@@ -492,6 +528,41 @@ def load_unified_helper(
 
     return meshlist, datalist
 
+
+def euler_calc_pressure(
+    gamma,
+    meshlist=None,
+    datalist=None,
+    meshdirs=None,
+    datadirs=None,
+    nvars=None,
+    dataroot=None,
+    merge_decomp=True,
+):
+
+    _, datalist = load_unified_helper(
+        meshlist,
+        datalist,
+        meshdirs,
+        datadirs,
+        nvars,
+        dataroot,
+        merge_decomp=merge_decomp,
+    )
+
+    pressurelist = [None for _ in range(len(datalist))]
+    for data_idx, data in enumerate(datalist):
+
+        ndim = data.ndim - 2
+        if ndim == 2:
+            mom_mag = np.sum(np.square(data[:, :, :, 1:3]), axis=3)
+            pressurelist[data_idx] = (gamma - 1.0) * (data[:, :, :, 3] - 0.5 * mom_mag / data[:, :, :, 0])[:, :, :, None]
+        else:
+            raise ValueError(f"Invalid dimension: {ndim}")
+
+    return pressurelist
+
+
 # FIXME: This use of "reverse" is bad, need to figure out proper write order
 def write_to_binary(data, outfile, reverse=False):
 
@@ -514,6 +585,7 @@ def write_to_binary(data, outfile, reverse=False):
         np.array([ncols], dtype=np.int64).tofile(f)
         data.astype(np.float64).tofile(f)
 
+
 def read_from_binary(infile):
 
     with open(infile, "rb") as f:
@@ -525,3 +597,65 @@ def read_from_binary(infile):
 
     return data
 
+
+def read_runtimes(
+    datadirs,
+    dataroot,
+    methodlist,
+):
+
+    if isinstance(datadirs, str):
+        datadirs = [datadirs]
+    ndata = len(datadirs)
+
+    assert len(methodlist) == ndata
+    assert all([method in ["mono", "mult", "add"] for method in methodlist])
+
+    runtimelist = [None for _ in range(ndata)]
+    niterslist = [None for _ in range(ndata)]
+    for data_idx, datadir in enumerate(datadirs):
+
+        datafile = os.path.join(datadir, f"{dataroot}.bin")
+        with open(datafile, 'rb') as f:
+            contents = f.read()
+
+        ndomains = struct.unpack('Q', contents[:8])[0]
+        nbytes_file = len(contents)
+        nbytes_read = 8
+
+        timelist = []
+        niters_tot = 0
+        while nbytes_read < nbytes_file:
+
+            niters = struct.unpack('Q', contents[nbytes_read:nbytes_read+8])[0]
+            nbytes_read += 8
+            niters_tot += niters
+            runtime_arr = np.zeros((ndomains, niters), dtype=np.float64)
+
+            for iter_idx in range(niters):
+                runtime_vals = struct.unpack('d'*ndomains, contents[nbytes_read:nbytes_read+8*ndomains])
+                runtime_arr[:, iter_idx] = np.array(runtime_vals, dtype=np.float64)
+                nbytes_read += 8*ndomains
+
+            timelist.append(runtime_arr.copy())
+
+        niterslist[data_idx] = niters_tot
+
+        # single-domain
+        if (len(timelist) == 1) and (timelist[0].shape == (1, 1)):
+            assert methodlist[data_idx] == "mono"
+            runtimelist[data_idx] = timelist[0][0, 0]
+
+        else:
+            assert methodlist[data_idx] in ["mult", "add"]
+            runtime_est = 0.0
+            for runtime_arr in timelist:
+                if methodlist[data_idx] == "mult":
+                    # multiplicative
+                    runtime_est += np.sum(runtime_arr)
+                else:
+                    # additive
+                    runtime_est += np.sum(np.amax(runtime_arr, axis=0))
+            runtimelist[data_idx] = runtime_est
+
+    return runtimelist, niterslist

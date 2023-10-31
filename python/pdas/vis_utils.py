@@ -4,10 +4,12 @@ import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib as mpl
 
-from pdas.data_utils import load_unified_helper
+from pdas.data_utils import load_unified_helper, calc_mesh_bounds
+from pdas.prom_utils import load_pod_basis
 
 
-mpl.rc("font", family="serif", size="10")
+# mpl.rc("font", family="serif", size="10")
+mpl.rc("font", family="sans", size="10")
 mpl.rc("axes", labelsize="x-large")
 mpl.rc("figure", facecolor="w")
 mpl.rc("text", usetex=False)
@@ -28,11 +30,12 @@ def plot_contours(
     nlevels=20,
     skiplevels=1,
     contourbounds=[None,None],
+    draw_colorbar=True,
     plottime=10,
     plotskip=1,
     stopiter=-1,
     varlabel=None,
-    plotbounds=True,
+    plotbounds=False,
     bound_colors=None,
     figdim_base=[6.4, 4.8],
     vertical=True,
@@ -59,15 +62,23 @@ def plot_contours(
     )
     ndata = len(datalist)
 
+    if plotbounds:
+        assert meshdirs is not None
+        assert len(meshdirs) == ndata
+        dom_bounds = calc_mesh_bounds(meshdirs)
+
     # prepping some lists
     if (plotlabels is None) or isinstance(plotlabels, str):
         plotlabels = [plotlabels] * ndata
+    if not isinstance(plotskip, list):
+        plotskip = [plotskip] * ndata
+    assert len(plotskip) == ndata
 
     # set up time plot progression
     nt_min = np.infty
-    for data in datalist:
-        nt_min = min(nt_min, data.shape[-2])
-    pause_time = plottime / (nt_min / plotskip)
+    for data_idx, data in enumerate(datalist):
+        nt_min = min(nt_min, int(data.shape[-2] / plotskip[data_idx]))
+    pause_time = plottime / nt_min
 
     # set up axes
     if vertical:
@@ -90,7 +101,7 @@ def plot_contours(
     ticks = levels[::skiplevels]
 
     itercounter = 0
-    for t in range(0, nt_min, plotskip):
+    for t in range(0, nt_min):
 
         for plotnum in range(ndata):
             ax[plotnum].cla()
@@ -100,7 +111,7 @@ def plot_contours(
                 cf = ax[plotnum].contourf(
                     meshlist[plotnum][:, :, 0],
                     meshlist[plotnum][:, :, 1],
-                    datalist[plotnum][:, :, t, varplot],
+                    datalist[plotnum][:, :, t * plotskip[plotnum], varplot],
                     levels=levels,
                     extend="both",
                 )
@@ -109,13 +120,24 @@ def plot_contours(
             else:
                 raise ValueError("Decomposed solution plotting not implemented")
 
+            # plot domain boundaries
+            if plotbounds:
+                if dom_bounds[plotnum] is not None:
+                    for dom_idx, bounds in enumerate(dom_bounds[plotnum]):
+                        ax[plotnum].plot(
+                            [bounds[0][0], bounds[0][1], bounds[0][1], bounds[0][0], bounds[0][0]],
+                            [bounds[1][0], bounds[1][0], bounds[1][1], bounds[1][1], bounds[1][0]],
+                            color=bound_colors[dom_idx],
+                            linestyle="--",
+                        )
+
             ax[plotnum].set_title(plotlabels[plotnum], fontsize=18)
             ax[plotnum].tick_params(axis='both', which='major', labelsize=14)
 
-        fig.supxlabel('x (m)', fontsize=16)
-        fig.supylabel('y (m)', fontsize=16)
+        fig.supxlabel('x', fontsize=16)
+        fig.supylabel('y', fontsize=16)
 
-        if t == 0:
+        if (t == 0) and draw_colorbar:
             plt.tight_layout()
             if vertical:
                 fig.subplots_adjust(right=0.8)
@@ -127,6 +149,7 @@ def plot_contours(
                 fig.subplots_adjust(top=0.8)
                 cbar_ax = fig.add_axes([0.1, 0.9, 0.8, 0.025])
                 cbar = fig.colorbar(cf, cax=cbar_ax, orientation="horizontal")
+                cbar.ax.xaxis.set_label_position('top')
             cbar.set_ticks(ticks)
             if varlabel is not None:
                 cbar.set_label(varlabel)
@@ -136,8 +159,7 @@ def plot_contours(
             breakpoint()
 
         if savefigs:
-            plotiter = int(t / plotskip)
-            plt.savefig(os.path.join(outdir, f'fig_{plotiter}.png'))
+            plt.savefig(os.path.join(outdir, f'fig_{t}.png'))
 
         itercounter += 1
 
@@ -234,4 +256,66 @@ def plot_lines(
     print(f"Saving image to {outfile}")
     plt.savefig(outfile)
 
-    pass
+
+def plot_pod_res_energy(
+    outdir,
+    basis_dirs=None,
+    svals=None,
+    xlim=[None, None],
+    plotcolors=["k", "r", "b"],
+    linestyles=["-", "--", ":"],
+    legend_labels=None,
+    outsuff="",
+):
+
+    assert os.path.isdir(outdir)
+    assert (basis_dirs is not None) != (svals is not None)
+
+    if svals is None:
+        if not isinstance(basis_dirs, list):
+            basis_dirs = [basis_dirs]
+        svals = []
+        for basis_dir in basis_dirs:
+            svals_in, = load_pod_basis(basis_dir, return_basis=False, return_svals=True)
+            if isinstance(svals_in, list):
+                svals += svals_in
+            else:
+                svals.append(svals_in.copy())
+    else:
+        if not isinstance(svals, list):
+            assert isinstance(svals, np.ndarray)
+            svals = [svals]
+
+    nlines = len(svals)
+    assert len(plotcolors) >= nlines
+    assert len(linestyles) >= nlines
+    if legend_labels is not None:
+        assert len(legend_labels) == nlines
+
+    fig, ax = plt.subplots(1, 1)
+    for line_idx, sval_arr in enumerate(svals):
+
+        # compute residual energy
+        svals_sq = np.square(sval_arr)
+        energy = 100* (1.0 - np.cumsum(svals_sq) / np.sum(svals_sq))
+
+        nmodes = np.arange(1, energy.shape[0]+1)
+
+        ax.semilogy(nmodes, energy, color=plotcolors[line_idx], linestyle=linestyles[line_idx])
+
+    ax.set_xlim(xlim)
+    ax.set_ylim([1e-2, 100])
+    ax.set_xlabel("# POD modes")
+    ax.tick_params(axis="both", which="major", labelsize=12)
+    ax.set_ylabel("Residual POD energy, %")
+    if legend_labels is not None:
+        ax.legend(legend_labels, loc="upper right", fontsize=12)
+    ax.set_yticks(
+        [1e-2, 1e-1, 1, 10, 100],
+        ["0.01", "0.1", "1", "10", "100"],
+    )
+
+    plt.tight_layout()
+    outfile = os.path.join(outdir, f"S{outsuff}.png")
+    print(f"Saving image to {outfile}")
+    plt.savefig(outfile)
