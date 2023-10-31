@@ -53,7 +53,7 @@ plot_contours(
     datalist=[fom_data, rom_data],
     nvars=3,
     dataroot="swe_slipWall2d_solution",
-    plotlabels=["Monolithic", "Schwarz, 2x2"],
+    plotlabels=["Monolithic", "LSPG"],
     nlevels=nlevels,
     skiplevels=skiplevels,
     contourbounds=contourbounds,

@@ -45,6 +45,8 @@ plot_contours(
     contourbounds=contourbounds,
     plotskip=2,
     varlabel=varlabel,
+    plotbounds=True,
+    bound_colors=["b", "r", "m", "c"],
     figdim_base=[8, 9],
     vertical=False,
 )
