@@ -56,7 +56,7 @@ int main()
     vector<obs_t> obsVec((*decomp.m_tiling).count());
     for (int domIdx = 0; domIdx < (*decomp.m_tiling).count(); ++domIdx) {
         obsVec[domIdx] = obs_t(obsRoot + "_" + to_string(domIdx) + ".bin", obsFreq);
-        obsVec[domIdx](::pressio::ode::StepCount(0), 0.0, decomp.m_subdomainVec[domIdx]->m_state);
+        obsVec[domIdx](::pressio::ode::StepCount(0), 0.0, *decomp.m_subdomainVec[domIdx]->getState());
     }
 
     RuntimeObserver obs_time("runtime.bin", (*tiling).count());
@@ -84,7 +84,7 @@ int main()
         if ((outerStep % obsFreq) == 0) {
             const auto stepWrap = pode::StepCount(outerStep);
             for (int domIdx = 0; domIdx < (*decomp.m_tiling).count(); ++domIdx) {
-                obsVec[domIdx](stepWrap, time, decomp.m_subdomainVec[domIdx]->m_state);
+	      obsVec[domIdx](stepWrap, time, *decomp.m_subdomainVec[domIdx]->getState());
             }
         }
 
