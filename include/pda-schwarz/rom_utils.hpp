@@ -11,19 +11,19 @@
 #include <iostream>
 #include "Eigen/Dense"
 
-using namespace std;
+
 
 namespace pdaschwarz {
 
-void checkfile(const string & fileIn){
-    ifstream infile(fileIn);
+void checkfile(const std::string & fileIn){
+    std::ifstream infile(fileIn);
     if (infile.good() == 0) {
-        throw runtime_error("Cannot find file: " + fileIn);
+        throw std::runtime_error("Cannot find file: " + fileIn);
     }
 }
 
 template<class ScalarType>
-auto read_matrix_from_binary(const string & fileName, int numColsToRead) {
+auto read_matrix_from_binary(const std::string & fileName, int numColsToRead) {
 
     using matrix_type = Eigen::Matrix<double, -1, -1, Eigen::ColMajor>;
     using sc_t  = typename matrix_type::Scalar;
@@ -32,8 +32,8 @@ auto read_matrix_from_binary(const string & fileName, int numColsToRead) {
 
     matrix_type M;
 
-    ifstream fin(fileName, ios::in | ios::binary);
-    fin.exceptions(ifstream::failbit | ifstream::badbit);
+    std::ifstream fin(fileName, std::ios::in | std::ios::binary);
+    fin.exceptions(std::ifstream::failbit | std::ifstream::badbit);
 
     // read 2 8-byte integer header, size matrix accordingly
     size_t rows = {};
@@ -48,11 +48,11 @@ auto read_matrix_from_binary(const string & fileName, int numColsToRead) {
     fin.read( (char *) M.data(), nBytes );
 
     if (!fin){
-        cerr << strerror(errno) << endl;
-        throw runtime_error("ERROR READING binary file");
+        std::cerr << strerror(errno) << std::endl;
+        throw std::runtime_error("ERROR READING binary file");
     }
     else{
-        cerr << fin.gcount() << " bytes read\n";
+        std::cerr << fin.gcount() << " bytes read\n";
     }
     fin.close();
     return M;
@@ -60,7 +60,7 @@ auto read_matrix_from_binary(const string & fileName, int numColsToRead) {
 }
 
 template<class ScalarType>
-auto read_vector_from_binary(const string & fileName) {
+auto read_vector_from_binary(const std::string & fileName) {
     auto Vmat = read_matrix_from_binary<ScalarType>(fileName, 1);
     Eigen::VectorXd V = Vmat.col(0);
     return V;

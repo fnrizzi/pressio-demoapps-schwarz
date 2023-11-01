@@ -7,11 +7,11 @@
 #include "pressiodemoapps/euler2d.hpp"
 #include "pressiodemoapps/swe2d.hpp"
 
-using namespace std;
 
-namespace pda = pressiodemoapps;
 
 namespace pdaschwarz{
+
+namespace pda = pressiodemoapps;
 
 enum class BCType {
     HomogNeumann,
@@ -35,7 +35,7 @@ struct BCFunctor
     // This is because BCFunctor has no internal left/right/front/back reference, and
     //  only understand position in graph from GLOBAL (subdomain) cell index
     state_t* m_stateBcs = nullptr;
-    vector<int>* m_graphBcs = nullptr;
+    std::vector<int>* m_graphBcs = nullptr;
 
     BCFunctor(BCType bcSwitch) : m_bcSwitch(bcSwitch){}
 
@@ -43,7 +43,7 @@ struct BCFunctor
         m_stateBcs = stateBcs;
     }
 
-    void setInternalPtr(vector<int>* graphBcs){
+    void setInternalPtr(std::vector<int>* graphBcs){
         m_graphBcs = graphBcs;
     }
 
@@ -53,19 +53,19 @@ struct BCFunctor
         switch(m_bcSwitch)
         {
             case BCType::HomogNeumann:
-                HomogNeumannBC(forward<Args>(args)...);
+                HomogNeumannBC(std::forward<Args>(args)...);
 		        break;
             case BCType::SchwarzDirichlet:
-                SchwarzDirichletBC(forward<Args>(args)...);
+                SchwarzDirichletBC(std::forward<Args>(args)...);
 		        break;
             case BCType::SlipWallVert:
-                SlipWallVertBC(forward<Args>(args)...);
+                SlipWallVertBC(std::forward<Args>(args)...);
                 break;
             case BCType::SlipWallHoriz:
-                SlipWallHorizBC(forward<Args>(args)...);
+                SlipWallHorizBC(std::forward<Args>(args)...);
                 break;
             default:
-                throw runtime_error("Invalid probId for getPhysBCs()");
+	      throw std::runtime_error("Invalid probId for getPhysBCs()");
         };
     }
 
@@ -160,7 +160,7 @@ private:
     {
         // TODO: any way to only check this once? Seems wasteful.
         if ((m_stateBcs == nullptr) || (m_graphBcs == nullptr)) {
-            runtime_error("m_stateBcs or m_graphBcs not set");
+	  std::runtime_error("m_stateBcs or m_graphBcs not set");
         }
 
         const auto bcIndex = (*m_graphBcs)[gRow];
@@ -199,7 +199,7 @@ auto getPhysBCs(pda::Euler2d probId, pda::impl::GhostRelativeLocation rloc)
             break;
 
         default:
-            throw runtime_error("Invalid probId for getPhysBCs()");
+	  throw std::runtime_error("Invalid probId for getPhysBCs()");
 
     }
 }
@@ -219,12 +219,12 @@ auto getPhysBCs(pda::Swe2d probId, pda::impl::GhostRelativeLocation rloc)
                 return BCType::SlipWallHoriz;
             }
             else {
-                throw runtime_error("Unexpected GhostRelativeLocation");
+	      throw std::runtime_error("Unexpected GhostRelativeLocation");
             }
             break;
 
         default:
-            throw runtime_error("Invalid probId for getPhysBCs()");
+	  throw std::runtime_error("Invalid probId for getPhysBCs()");
 
     }
 }
