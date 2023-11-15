@@ -1,5 +1,6 @@
 import os
 import struct
+from math import floor
 
 import numpy as np
 from scipy.linalg import svd
@@ -470,3 +471,73 @@ def calc_projection(
         raise ValueError("Unexpected basis type")
 
     return datalist_out
+
+
+def gen_sample_mesh(
+    samptype,
+    outdir,
+    meshdir=None,
+    meshdir_decomp=None,
+    percpoints=None,
+    npoints=None,
+    randseed=0,
+):
+    # expand as necessary
+    assert samptype in ["random"]
+
+    # decomposed only works with percentage, for now
+    if meshdir_decomp is not None:
+        assert percpoints is not None
+
+    # for monolithic, can specify percentage or number, not both
+    assert (percpoints is not None) != (npoints is not None)
+
+    if percpoints is not None:
+        assert (percpoints > 0.0) and (percpoints <= 1.0)
+
+    if not os.path.isdir(outdir):
+        os.mkdir(outdir)
+
+     # get monolithic mesh dimensions
+    coords_full, coords_sub = load_meshes(meshdir)
+    assert coords_sub is None
+    ndim = coords_full.shape[-1]
+    meshdims_full = coords_full.shape[:-1]
+    ncells_full = np.prod(meshdims_full)
+
+    # monolithic sample mesh
+    if meshdir_decomp is None:
+
+        if percpoints is not None:
+            npoints = floor(ncells_full * percpoints)
+
+        assert (npoints > 0) and (npoints <= ncells_full)
+
+        if samptype == "random":
+            samples = gen_random_samples(0, ncells_full-1, npoints, randseed=randseed)
+
+
+    # decomposed sample mesh
+    else:
+        raise ValueError("Decomposed sample mesh not implemented yet")
+
+    outfile = os.path.join(outdir, "sample_mesh_gids.txt")
+    print(f"Saving sample mesh global indices to {outfile}")
+    np.savetxt(outfile, samples, fmt='%8i')
+
+
+def gen_random_samples(
+    low,
+    high,
+    numsamps,
+    randseed=0,
+):
+
+    rng = np.random.default_rng(seed=randseed)
+
+    all_samples = np.arange(low, high+1)
+    rng.shuffle(all_samples)
+
+    samples = np.sort(all_samples[:numsamps])
+
+    return samples
