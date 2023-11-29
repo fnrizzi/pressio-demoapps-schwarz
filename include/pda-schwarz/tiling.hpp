@@ -10,7 +10,7 @@
 #include <fstream>
 #include <sstream>
 
-using namespace std;
+
 
 namespace pdaschwarz{
 
@@ -19,13 +19,13 @@ namespace pdaschwarz{
 //
 struct Tiling
 {
-    explicit Tiling(const string & meshRoot){
+    explicit Tiling(const std::string & meshRoot){
         read_domain_info(meshRoot);
         calc_neighbor_dims();
     }
 
     void describe(){
-        cout << " Tiling info: "
+        std::cout << " Tiling info: "
             << " ndomX = " << m_ndomX
             << " ndomY = " << m_ndomY
             << " ndomZ = " << m_ndomZ
@@ -44,12 +44,12 @@ struct Tiling
 
 private:
 
-    void read_domain_info(const string & meshRoot)
+    void read_domain_info(const std::string & meshRoot)
     {
         const auto inFile = meshRoot + "/info_domain.dat";
-        ifstream foundFile(inFile);
+        std::ifstream foundFile(inFile);
         if (!foundFile) {
-            cout << "file not found " << inFile << endl;
+            std::cout << "file not found " << inFile << std::endl;
             exit(EXIT_FAILURE);
         }
 
@@ -57,43 +57,43 @@ private:
         m_ndomX = 1;
         m_ndomY = 1;
         m_ndomZ = 1;
-        ifstream source( inFile, ios_base::in);
-        string line;
+        std::ifstream source( inFile, std::ios_base::in);
+        std::string line;
         while (getline(source, line)) {
-            istringstream ss(line);
-            string colVal;
+	    std::istringstream ss(line);
+            std::string colVal;
             ss >> colVal;
 
             if (colVal == "dim"){
                 ss >> colVal;
                 m_dim = stoi(colVal);
-                if (m_dim < 1) throw runtime_error("dim must be >= 1");
+                if (m_dim < 1) throw std::runtime_error("dim must be >= 1");
             }
             else if (colVal == "ndomX"){
                 ss >> colVal;
                 m_ndomX = stoi(colVal);
-                if (m_ndomX < 1) throw runtime_error("ndomX must be >= 1");
+                if (m_ndomX < 1) throw std::runtime_error("ndomX must be >= 1");
             }
 
             else if (colVal == "ndomY"){
                 ss >> colVal;
                 m_ndomY = stoi(colVal);
-                if (m_ndomY < 1) throw runtime_error("ndomY must be >= 1");
+                if (m_ndomY < 1) throw std::runtime_error("ndomY must be >= 1");
             }
             else if (colVal == "ndomZ"){
                 ss >> colVal;
                 m_ndomZ = stoi(colVal);
-                if (m_ndomZ < 1) throw runtime_error("ndomZ must be >= 1");
+                if (m_ndomZ < 1) throw std::runtime_error("ndomZ must be >= 1");
             }
 
             else if (colVal == "overlap"){
                 ss >> colVal;
                 m_overlap = stoi(colVal);
-                if (m_overlap < 0) throw runtime_error("overlap must be > 0");
+                if (m_overlap < 0) throw std::runtime_error("overlap must be > 0");
 
                 // has to be an even number for simplicity, can change later
                 if (m_overlap % 2) {
-                    cerr << "overlap must be an even number" << endl;
+                    std::cerr << "overlap must be an even number" << std::endl;
                     exit(-1);
                 }
             }
@@ -106,7 +106,7 @@ private:
     {
         // determine neighboring domain IDs
         int maxDomNeighbors = 2 * m_dim;
-        m_exchDomIdVec.resize(m_ndomains, vector<int>(maxDomNeighbors, -1));
+        m_exchDomIdVec.resize(m_ndomains, std::vector<int>(maxDomNeighbors, -1));
 
         for (int domIdx = 0; domIdx < m_ndomains; ++domIdx) {
             // subdomain indices
@@ -172,7 +172,7 @@ private:
     int m_overlap = {};
     int m_ndomains = {};
 
-    vector<vector<int>> m_exchDomIdVec;
+    std::vector<std::vector<int>> m_exchDomIdVec;
 };
 
 }

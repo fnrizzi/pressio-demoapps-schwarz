@@ -2,11 +2,6 @@
 #include "pressiodemoapps/swe2d.hpp"
 #include "pda-schwarz/schwarz.hpp"
 #include "../../observer.hpp"
-// #include "pressio/rom_subspaces.hpp"
-// #include "pressio/rom_lspg_unsteady.hpp"
-// #include "pda-schwarz/rom_utils.hpp"
-
-using namespace std;
 
 int main()
 {
@@ -16,8 +11,8 @@ int main()
     namespace pode = pressio::ode;
 
     // +++++ USER INPUTS +++++
-    string meshRoot = "./mesh";
-    string obsRoot = "swe_slipWall2d_solution";
+    std::string meshRoot = "./mesh";
+    std::string obsRoot = "swe_slipWall2d_solution";
     const int obsFreq = 10;
 
     // problem definition
@@ -28,14 +23,14 @@ int main()
     using app_t = pdas::swe2d_app_type;
 
     // ROM definition
-    vector<string> domFlagVec(4, "LSPG");
-    string transRoot = "./trial_space/center";
-    string basisRoot = "./trial_space/basis";
-    vector<int> nmodesVec(4, 25);
+    std::vector<std::string> domFlagVec(4, "LSPG");
+    std::string transRoot = "./trial_space/center";
+    std::string basisRoot = "./trial_space/basis";
+    std::vector<int> nmodesVec(4, 25);
 
     // time stepping
     const double tf = 5.0;
-    vector<double> dt(1, 0.01);
+    std::vector<double> dt(1, 0.01);
     const int convergeStepMax = 10;
     const double abs_err_tol = 1e-11;
     const double rel_err_tol = 1e-11;
@@ -53,9 +48,9 @@ int main()
     // observer
     using state_t = decltype(decomp)::state_t;
     using obs_t = FomObserver<state_t>;
-    vector<obs_t> obsVec((*decomp.m_tiling).count());
+    std::vector<obs_t> obsVec((*decomp.m_tiling).count());
     for (int domIdx = 0; domIdx < (*decomp.m_tiling).count(); ++domIdx) {
-        obsVec[domIdx] = obs_t(obsRoot + "_" + to_string(domIdx) + ".bin", obsFreq);
+        obsVec[domIdx] = obs_t(obsRoot + "_" + std::to_string(domIdx) + ".bin", obsFreq);
         obsVec[domIdx](::pressio::ode::StepCount(0), 0.0, decomp.m_subdomainVec[domIdx]->m_state);
     }
 
@@ -66,7 +61,7 @@ int main()
     double time = 0.0;
     for (int outerStep = 1; outerStep <= numSteps; ++outerStep)
     {
-        cout << "Step " << outerStep << endl;
+        std::cout << "Step " << outerStep << std::endl;
 
         // compute contoller step until convergence
         auto runtimeIter = decomp.calc_controller_step(
