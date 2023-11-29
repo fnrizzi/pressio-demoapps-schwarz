@@ -24,19 +24,54 @@ namespace pls = pressio::linearsolvers;
 namespace prom = pressio::rom;
 namespace plspg = pressio::rom::lspg;
 
+template<class mesh_type, class state_type>
+class SubdomainBase{
+public:
+    using state_t = state_type;
+    using mesh_t = mesh_type;
+
+    virtual int nx() const = 0;
+    virtual int ny() const = 0;
+    virtual int nz() const = 0;
+
+    virtual void allocateStorageForHistory(const int) = 0;
+    virtual void doStep(pode::StepStartAt<double>, pode::StepCount, pode::StepSize<double>) = 0;
+    virtual void storeStateHistory(const int) = 0;
+    virtual void resetStateFromHistory() = 0;
+    virtual void updateFullState() = 0;
+    virtual const mesh_t & getMesh() const = 0;
+    virtual int getDofPerCell() const = 0;
+    virtual state_t * getState() = 0;
+    virtual state_t * getStateBCs() = 0;
+    virtual void setBCPointer(pda::impl::GhostRelativeLocation, state_t * ) = 0;
+    virtual void setBCPointer(pda::impl::GhostRelativeLocation, std::vector<int> *) = 0;
+    virtual state_t & getLastStateInHistory() = 0;
+};
+
+
 template<class mesh_t, class app_type>
-class SubdomainBase
+class SubdomainFOM: public SubdomainBase<mesh_t, typename app_type::state_type>
 {
+public:
+    using app_t   = app_type;
+    using state_t = typename app_t::state_type;
+    using jacob_t = typename app_t::jacobian_type;
+    using base_t = SubdomainBase<mesh_t, state_t>;
+
+    using stepper_t  =
+        decltype(pressio::ode::create_implicit_stepper(pressio::ode::StepScheme(),
+            std::declval<app_t&>())
+        );
+
+    using lin_solver_tag = pressio::linearsolvers::iterative::Bicgstab;
+    using linsolver_t    = pressio::linearsolvers::Solver<lin_solver_tag, jacob_t>;
+    using nonlinsolver_t =
+        decltype( pressio::create_newton_solver( std::declval<stepper_t &>(),
+                            std::declval<linsolver_t&>()) );
 
 public:
-
-    using app_t      = app_type;
-    using state_t    = typename app_t::state_type;
-
-protected:
-
     template<class prob_t>
-    SubdomainBase(const int domainIndex,
+    SubdomainFOM(const int domainIndex,
         const mesh_t & mesh,
         const std::array<int, 3> & meshFullDim,
         BCType bcLeft, BCType bcFront,
@@ -55,28 +90,38 @@ protected:
             BCFunctor<mesh_t>(bcRight), BCFunctor<mesh_t>(bcBack),
             icflag, userParams)))
     , m_state(m_app->initialCondition())
+    // : SubdomainBase<mesh_t>::SubdomainBase(domainIndex, mesh, meshFullDim,
+    // 					   bcLeft, bcFront, bcRight, bcBack,
+    // 					   probId, odeScheme, order, icflag, userParams)
+    , m_stepper(pressio::ode::create_implicit_stepper(odeScheme, *(this->m_app)))
+    , m_linSolverObj(std::make_shared<linsolver_t>())
+    , m_nonlinSolver(pressio::create_newton_solver(m_stepper, *m_linSolverObj))
     {
-        if (order != pressiodemoapps::InviscidFluxReconstruction::FirstOrder){
+        if (order != pressiodemoapps::InviscidFluxReconstruction::FirstOrder) {
             std::runtime_error("Subdomain: inviscid reconstruction must be first oder");
         }
-
         init_bc_state(order);
+
+        m_nonlinSolver.setStopTolerance(1e-5);
     }
 
-public:
+    state_t & getLastStateInHistory() final { return m_stateHistVec.back(); }
 
-    int nx() const{ return m_dims[0]; }
-    int ny() const{ return m_dims[1]; }
-    int nz() const{ return m_dims[2]; }
+    void setBCPointer(pda::impl::GhostRelativeLocation grl, state_t * v) final {
+        m_app->setBCPointer(grl, v);
+    }
+    void setBCPointer(pda::impl::GhostRelativeLocation grl, std::vector<int> * v) final {
+      m_app->setBCPointer(grl, v);
+    }
 
-    // we set equal to zero to make these purely virtual
-    virtual void allocateStorageForHistory(const int) = 0;
-    virtual void doStep(pode::StepStartAt<double>, pode::StepCount, pode::StepSize<double>) = 0;
-    virtual void storeStateHistory(const int) = 0;
-    virtual void resetStateFromHistory() = 0;
-    virtual void updateFullState() = 0;
+    state_t * getStateBCs() final { return &m_stateBCs; }
+    state_t * getState() final { return &m_state; }
+    int getDofPerCell() const final { return m_app->numDofPerCell(); }
+    const mesh_t & getMesh() const final { return *m_mesh; }
 
-private:
+    int nx() const final{ return m_dims[0]; }
+    int ny() const final{ return m_dims[1]; }
+    int nz() const final{ return m_dims[2]; }
 
     void init_bc_state(pressiodemoapps::InviscidFluxReconstruction order)
     {
@@ -88,63 +133,6 @@ private:
         m_stateBCs.fill(0.0);
     }
 
-protected:
-
-    int m_domIdx;
-    std::array<int,3> m_dims = {};
-
-public:
-
-    mesh_t const * m_mesh;
-    std::shared_ptr<app_t> m_app;
-    state_t m_state;
-    state_t m_stateBCs;
-    std::vector<state_t> m_stateHistVec;
-
-};
-
-template<class mesh_t, class app_type>
-class SubdomainFOM: public SubdomainBase<mesh_t, app_type>
-{
-
-public:
-
-    using app_t   = app_type;
-    using state_t = typename app_t::state_type;
-    using jacob_t = typename app_t::jacobian_type;
-
-    using stepper_t  =
-        decltype(pressio::ode::create_implicit_stepper(pressio::ode::StepScheme(),
-            std::declval<app_t&>())
-        );
-
-    using lin_solver_tag = pressio::linearsolvers::iterative::Bicgstab;
-    using linsolver_t    = pressio::linearsolvers::Solver<lin_solver_tag, jacob_t>;
-    using nonlinsolver_t =
-        decltype( pressio::create_newton_solver( std::declval<stepper_t &>(),
-                            std::declval<linsolver_t&>()) );
-
-public:
-
-    template<class prob_t>
-    SubdomainFOM(const int domainIndex,
-        const mesh_t & mesh,
-        const std::array<int, 3> & meshFullDim,
-        BCType bcLeft, BCType bcFront,
-        BCType bcRight, BCType bcBack,
-        prob_t probId,
-        pressio::ode::StepScheme odeScheme,
-        pressiodemoapps::InviscidFluxReconstruction order,
-        const int icflag,
-        const std::unordered_map<std::string, typename mesh_t::scalar_type> & userParams)
-    : SubdomainBase<mesh_t, app_t>::SubdomainBase(domainIndex, mesh, meshFullDim, bcLeft, bcFront, bcRight, bcBack, probId, odeScheme, order, icflag, userParams)
-    , m_stepper(pressio::ode::create_implicit_stepper(odeScheme, *(this->m_app)))
-    , m_linSolverObj(std::make_shared<linsolver_t>())
-    , m_nonlinSolver(pressio::create_newton_solver(m_stepper, *m_linSolverObj))
-    {
-        m_nonlinSolver.setStopTolerance(1e-5);
-    }
-
     void allocateStorageForHistory(const int count) final {
         for (int histIdx = 0; histIdx < count + 1; ++histIdx) {
             // createState creates a new state with all elements equal to zero
@@ -152,7 +140,10 @@ public:
         }
     }
 
-    void doStep(pode::StepStartAt<double> startTime, pode::StepCount step, pode::StepSize<double> dt) final {
+    void doStep(pode::StepStartAt<double> startTime,
+        pode::StepCount step,
+        pode::StepSize<double> dt) final
+    {
         m_stepper(this->m_state, startTime, step, dt, m_nonlinSolver);
     }
 
@@ -169,20 +160,31 @@ public:
     }
 
 public:
+    int m_domIdx;
+    std::array<int,3> m_dims = {};
+    mesh_t const * m_mesh;
+    std::shared_ptr<app_t> m_app;
+    state_t m_state;
+    state_t m_stateBCs;
+    std::vector<state_t> m_stateHistVec;
 
+    // std::shared_ptr<app_t> m_app;
+    // state_t m_state;
     stepper_t m_stepper;
     std::shared_ptr<linsolver_t> m_linSolverObj;
     nonlinsolver_t m_nonlinSolver;
 
 };
 
-template<class mesh_t, class app_type>
-class SubdomainROM: public SubdomainBase<mesh_t, app_type>
-{
 
+
+template<class mesh_t, class app_type>
+class SubdomainROM: public SubdomainBase<mesh_t, typename app_type::state_type>
+{
     using app_t    = app_type;
     using scalar_t = typename app_t::scalar_type;
     using state_t  = typename app_t::state_type;
+    using base_t = SubdomainBase<mesh_t, state_t>;
 
     using trans_t = decltype(read_vector_from_binary<scalar_t>(std::declval<std::string>()));
     using basis_t = decltype(read_matrix_from_binary<scalar_t>(std::declval<std::string>(), std::declval<int>()));
@@ -190,7 +192,6 @@ class SubdomainROM: public SubdomainBase<mesh_t, app_type>
         state_t>(std::declval<basis_t&&>(), std::declval<trans_t&&>(), true));
 
 public:
-
     template<class prob_t>
     SubdomainROM(const int domainIndex,
         const mesh_t & mesh,
@@ -205,19 +206,59 @@ public:
         const std::string & transRoot,
         const std::string & basisRoot,
         int nmodes)
-    : SubdomainBase<mesh_t, app_t>::SubdomainBase(domainIndex, mesh, meshFullDim, bcLeft, bcFront, bcRight, bcBack, probId, odeScheme, order, icflag, userParams)
+    : m_domIdx(domainIndex)
+    , m_dims(meshFullDim)
+    , m_mesh(&mesh)
+    , m_app(std::make_shared<app_t>(pressiodemoapps::create_problem_eigen(
+            mesh, probId, order,
+            BCFunctor<mesh_t>(bcLeft),  BCFunctor<mesh_t>(bcFront),
+            BCFunctor<mesh_t>(bcRight), BCFunctor<mesh_t>(bcBack),
+            icflag, userParams)))
+    , m_state(m_app->initialCondition())
     , m_nmodes(nmodes)
     , m_trans(read_vector_from_binary<scalar_t>(transRoot + "_" + std::to_string(domainIndex) + ".bin"))
     , m_basis(read_matrix_from_binary<scalar_t>(basisRoot + "_" + std::to_string(domainIndex) + ".bin", nmodes))
     , m_trialSpace(prom::create_trial_column_subspace<state_t>(std::move(m_basis), std::move(m_trans), true))
     , m_stateReduced(m_trialSpace.createReducedState())
     {
+        if (order != pressiodemoapps::InviscidFluxReconstruction::FirstOrder){
+            std::runtime_error("Subdomain: inviscid reconstruction must be first oder");
+        }
+        init_bc_state(order);
+
         // project initial conditions
         auto u = pressio::ops::clone(this->m_state);
         pressio::ops::update(u, 0., this->m_state, 1, m_trialSpace.translationVector(), -1);
         pressio::ops::product(::pressio::transpose(), 1., m_trialSpace.basis(), u, 0., m_stateReduced);
         m_trialSpace.mapFromReducedState(m_stateReduced, this->m_state);
 
+    }
+
+    state_t & getLastStateInHistory() final { return m_stateHistVec.back(); }
+    void setBCPointer(pda::impl::GhostRelativeLocation grl, state_t * v) final{
+        m_app->setBCPointer(grl, v);
+    }
+    void setBCPointer(pda::impl::GhostRelativeLocation grl, std::vector<int> * v) final{
+        m_app->setBCPointer(grl, v);
+    }
+
+    state_t * getStateBCs() final { return &m_stateBCs; }
+    state_t * getState() final { return &m_state; }
+    int getDofPerCell() const final { return m_app->numDofPerCell(); }
+    const mesh_t & getMesh() const final { return *m_mesh; }
+
+    int nx() const final{ return m_dims[0]; }
+    int ny() const final{ return m_dims[1]; }
+    int nz() const final{ return m_dims[2]; }
+
+    void init_bc_state(pressiodemoapps::InviscidFluxReconstruction order)
+    {
+        // TODO: can presumably remove this when routines generalized to unstructured format
+        const int bcStencilSize = (pressiodemoapps::reconstructionTypeToStencilSize(order) - 1) / 2;
+        const int bcStencilDof = bcStencilSize * m_app->numDofPerCell();
+        const int numDofStencilBc = 2 * bcStencilDof * (m_dims[0] + m_dims[1] + m_dims[2]);
+        pressiodemoapps::resize(m_stateBCs, numDofStencilBc);
+        m_stateBCs.fill(0.0);
     }
 
     void allocateStorageForHistory(const int count){
@@ -242,6 +283,13 @@ public:
     }
 
 protected:
+    int m_domIdx;
+    std::array<int,3> m_dims = {};
+    mesh_t const * m_mesh;
+    std::shared_ptr<app_t> m_app;
+    state_t m_state;
+    state_t m_stateBCs;
+    std::vector<state_t> m_stateHistVec;
 
     int m_nmodes;
     trans_t m_trans;
@@ -307,7 +355,6 @@ public:
     }
 
 private:
-
     problem_t m_problem;
     stepper_t m_stepper;
     std::shared_ptr<linsolver_t> m_linSolverObj;
@@ -414,7 +461,7 @@ auto create_subdomains(const std::vector<std::string> & meshPaths,
     // add checks that vectors are all same size?
 
     // using subdomain_t = Subdomain<prob_t, mesh_t, app_t>;
-    using subdomain_t = SubdomainBase<mesh_t, app_t>;
+    using subdomain_t = SubdomainBase<mesh_t, typename app_t::state_type>;
     std::vector<std::shared_ptr<subdomain_t>> result;
 
     const int ndomX = tiling.countX();

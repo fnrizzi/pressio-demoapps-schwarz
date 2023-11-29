@@ -33,7 +33,8 @@ int main()
     // tiling, meshes, and decomposition
     auto tiling = std::make_shared<pdas::Tiling>(meshRoot);
     auto [meshPaths, meshObjs] = pdas::create_meshes(meshRoot, tiling->count());
-    auto subdomains = pdas::create_subdomains<app_t>(meshPaths, meshObjs, *tiling, probId, scheme, order, icFlag);
+    auto subdomains = pdas::create_subdomains<app_t>(meshPaths, meshObjs, *tiling,
+						     probId, scheme, order, icFlag);
     pdas::SchwarzDecomp decomp(subdomains, tiling, dt);
 
     // observer
@@ -42,7 +43,7 @@ int main()
     std::vector<obs_t> obsVec((*decomp.m_tiling).count());
     for (int domIdx = 0; domIdx < (*decomp.m_tiling).count(); ++domIdx) {
         obsVec[domIdx] = obs_t(obsRoot + "_" + std::to_string(domIdx) + ".bin", obsFreq);
-        obsVec[domIdx](::pressio::ode::StepCount(0), 0.0, decomp.m_subdomainVec[domIdx]->m_state);
+        obsVec[domIdx](::pressio::ode::StepCount(0), 0.0, *decomp.m_subdomainVec[domIdx]->getState());
     }
 
     RuntimeObserver obs_time("runtime.bin", (*tiling).count());
@@ -70,7 +71,7 @@ int main()
         if ((outerStep % obsFreq) == 0) {
             const auto stepWrap = pode::StepCount(outerStep);
             for (int domIdx = 0; domIdx < (*decomp.m_tiling).count(); ++domIdx) {
-                obsVec[domIdx](stepWrap, time, decomp.m_subdomainVec[domIdx]->m_state);
+                obsVec[domIdx](stepWrap, time, *decomp.m_subdomainVec[domIdx]->getState());
             }
         }
 
