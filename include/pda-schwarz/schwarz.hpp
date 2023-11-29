@@ -15,7 +15,7 @@
 #include <chrono>
 
 
-using namespace std;
+
 
 namespace pdaschwarz{
 
@@ -25,48 +25,48 @@ namespace pode = pressio::ode;
 using mesh_t = pressiodemoapps::cellcentered_uniform_mesh_eigen_type;
 using euler2d_app_type =
     decltype(pda::create_problem_eigen(
-            declval<mesh_t>(),
-            declval<pressiodemoapps::Euler2d>(),
-            declval<pda::InviscidFluxReconstruction>(),
-            declval<BCFunctor<mesh_t>>(),
-            declval<BCFunctor<mesh_t>>(),
-            declval<BCFunctor<mesh_t>>(),
-            declval<BCFunctor<mesh_t>>(),
+            std::declval<mesh_t>(),
+            std::declval<pressiodemoapps::Euler2d>(),
+            std::declval<pda::InviscidFluxReconstruction>(),
+            std::declval<BCFunctor<mesh_t>>(),
+            std::declval<BCFunctor<mesh_t>>(),
+            std::declval<BCFunctor<mesh_t>>(),
+            std::declval<BCFunctor<mesh_t>>(),
             int(), /* initial condition */
             std::unordered_map<std::string, typename mesh_t::scalar_type>() /* user parameters */
         )
     );
 using swe2d_app_type =
     decltype(pda::create_problem_eigen(
-            declval<mesh_t>(),
-            declval<pressiodemoapps::Swe2d>(),
-            declval<pda::InviscidFluxReconstruction>(),
-            declval<BCFunctor<mesh_t>>(),
-            declval<BCFunctor<mesh_t>>(),
-            declval<BCFunctor<mesh_t>>(),
-            declval<BCFunctor<mesh_t>>(),
+            std::declval<mesh_t>(),
+            std::declval<pressiodemoapps::Swe2d>(),
+            std::declval<pda::InviscidFluxReconstruction>(),
+            std::declval<BCFunctor<mesh_t>>(),
+            std::declval<BCFunctor<mesh_t>>(),
+            std::declval<BCFunctor<mesh_t>>(),
+            std::declval<BCFunctor<mesh_t>>(),
             int(), /* dummy initial */
             std::unordered_map<std::string, typename mesh_t::scalar_type>() /* user parameters */
         )
     );
 
 
-template<class mesh_t, class app_t>
+template<class ...SubdomainArgs>
 class SchwarzDecomp
 {
 
 public:
+    using subdomain_base_t = SubdomainBase<SubdomainArgs...>;
+    using graph_t = typename subdomain_base_t::mesh_t::graph_t;
+    using state_t = typename subdomain_base_t::state_t;
 
-    using graph_t = typename app_t::mesh_connectivity_graph_type;
-    using state_t = typename app_t::state_type;
-
-    SchwarzDecomp(vector<shared_ptr<SubdomainBase<mesh_t, app_t>>> & subdomains,
-                shared_ptr<const Tiling> tiling,
-                vector<double> & dtVec)
+    SchwarzDecomp(std::vector<std::shared_ptr< subdomain_base_t >> & subdomains,
+                std::shared_ptr<const Tiling> tiling,
+                std::vector<double> & dtVec)
         : m_tiling(tiling)
         , m_subdomainVec(subdomains)
     {
-        m_dofPerCell = m_subdomainVec[0]->m_app->numDofPerCell();
+        m_dofPerCell = m_subdomainVec[0]->getDofPerCell();//m_app->numDofPerCell();
 
         setup_controller(dtVec);
         for (int domIdx = 0; domIdx < (int) m_subdomainVec.size(); ++domIdx) {
@@ -92,7 +92,7 @@ public:
 
 private:
 
-    void setup_controller(vector<double> & dtVec)
+    void setup_controller(std::vector<double> & dtVec)
     {
         const auto & tiling = *m_tiling;
 
@@ -102,7 +102,7 @@ private:
             m_dt.resize(tiling.count(), m_dt[0]);
         } else {
             if (m_dt.size() != (size_t) tiling.count()) {
-                cerr << "m_dt.size() must be 1 or ndomains, exiting" << endl;
+                std::cerr << "m_dt.size() must be 1 or ndomains, exiting" << std::endl;
                 exit(-1);
             }
         }
@@ -115,10 +115,10 @@ private:
             if (round(niters) == niters) {
                 m_controlItersVec[domIdx] = int(round(niters));
             } else {
-                cerr << "dt of domain " << domIdx
+                std::cerr << "dt of domain " << domIdx
                 << " (" << m_dt[domIdx]
                 << ") is not an integer divisor of maximum m_dt ("
-                << m_dtMax << ")" << endl;
+                << m_dtMax << ")" << std::endl;
                 exit(-1);
             }
         }
@@ -149,18 +149,19 @@ private:
                 int nyNeigh = m_subdomainVec[neighDomIdx]->ny();
                 int nzNeigh = m_subdomainVec[neighDomIdx]->nz();
 
-                string xerr = "Mesh x-dimension mismatch for domains " + to_string(domIdx) + " v " + to_string(neighDomIdx) + ": " + to_string(nx) + " != " + to_string(nxNeigh);
-                string yerr = "Mesh y-dimension mismatch for domains " + to_string(domIdx) + " v " + to_string(neighDomIdx) + ": " + to_string(ny) + " != " + to_string(nyNeigh);
-                string zerr = "Mesh z-dimension mismatch for domains " + to_string(domIdx) + " v " + to_string(neighDomIdx) + ": " + to_string(nz) + " != " + to_string(nzNeigh);
+		using std::to_string;
+                auto xerr = "Mesh x-dimension mismatch for domains " + to_string(domIdx) + " v " + to_string(neighDomIdx) + ": " + to_string(nx) + " != " + to_string(nxNeigh);
+                auto yerr = "Mesh y-dimension mismatch for domains " + to_string(domIdx) + " v " + to_string(neighDomIdx) + ": " + to_string(ny) + " != " + to_string(nyNeigh);
+                auto zerr = "Mesh z-dimension mismatch for domains " + to_string(domIdx) + " v " + to_string(neighDomIdx) + ": " + to_string(nz) + " != " + to_string(nzNeigh);
 
                 // left and right
                 if ((neighIdx == 0) || (neighIdx == 2)) {
                     if (ny != nyNeigh) {
-                        cerr << yerr << endl;
+                        std::cerr << yerr << std::endl;
                         exit(-1);
                     }
                     if (nz != nzNeigh) {
-                        cerr << zerr << endl;
+                        std::cerr << zerr << std::endl;
                         exit(-1);
                     }
                 }
@@ -168,11 +169,11 @@ private:
                 // front and back
                 if ((neighIdx == 1) || (neighIdx == 3)) {
                     if (nx != nxNeigh) {
-                        cerr << xerr << endl;
+                        std::cerr << xerr << std::endl;
                         exit(-1);
                     }
                     if (nz != nzNeigh) {
-                        cerr << zerr << endl;
+                        std::cerr << zerr << std::endl;
                         exit(-1);
                     }
                 }
@@ -180,11 +181,11 @@ private:
                 // bottom and top
                 if ((neighIdx == 4) || (neighIdx == 5)) {
                     if (nx != nxNeigh) {
-                        cerr << xerr << endl;
+                        std::cerr << xerr << std::endl;
                         exit(-1);
                     }
                     if (ny != nyNeigh) {
-                        cerr << yerr << endl;
+                        std::cerr << yerr << std::endl;
                         exit(-1);
                     }
                 }
@@ -319,7 +320,7 @@ private:
     {
         const auto & tiling = *m_tiling;
         const auto & exchDomIdVec = tiling.exchDomIdVec();
-        const auto* domState = &m_subdomainVec[domIdx]->m_state;
+        const auto* domState = m_subdomainVec[domIdx]->getState();
 
         int startIdx, endIdx;
         for (int neighIdx = 0; neighIdx < (int) exchDomIdVec[domIdx].size(); ++neighIdx) {
@@ -331,7 +332,7 @@ private:
 
             int nxNeigh = m_subdomainVec[neighDomIdx]->nx();
             int nyNeigh = m_subdomainVec[neighDomIdx]->ny();
-            auto* neighStateBCs = &m_subdomainVec[neighDomIdx]->m_stateBCs;
+            auto* neighStateBCs = m_subdomainVec[neighDomIdx]->getStateBCs();
             const auto & neighExchGraph = m_exchGraphVec[neighDomIdx];
 
             // TODO: extend to 3D, need to change L/R and F/B indices to account for nzNeigh
@@ -389,7 +390,7 @@ private:
         m_ghostGraphVec.resize(tiling.count());
         for (int domIdx = 0; domIdx < tiling.count(); ++domIdx) {
 
-            const auto & meshObj = *(m_subdomainVec[domIdx]->m_mesh);
+            const auto & meshObj = m_subdomainVec[domIdx]->getMesh();
             const auto intGraph = meshObj.graph();
             int nx = m_subdomainVec[domIdx]->nx();
             int ny = m_subdomainVec[domIdx]->ny();
@@ -469,40 +470,40 @@ private:
 
                 // has left neighbor
                 if (neighIdx == 0) {
-                    m_subdomainVec[domIdx]->m_app->setBCPointer(pda::impl::GhostRelativeLocation::Left, &m_subdomainVec[domIdx]->m_stateBCs);
-                    m_subdomainVec[domIdx]->m_app->setBCPointer(pda::impl::GhostRelativeLocation::Left, &m_ghostGraphVec[domIdx][0]);
+                    m_subdomainVec[domIdx]->setBCPointer(pda::impl::GhostRelativeLocation::Left, m_subdomainVec[domIdx]->getStateBCs());
+                    m_subdomainVec[domIdx]->setBCPointer(pda::impl::GhostRelativeLocation::Left, &m_ghostGraphVec[domIdx][0]);
                 }
 
                 // has front neighbor
                 if (neighIdx == 1) {
-                    m_subdomainVec[domIdx]->m_app->setBCPointer(pda::impl::GhostRelativeLocation::Front, &m_subdomainVec[domIdx]->m_stateBCs);
-                    m_subdomainVec[domIdx]->m_app->setBCPointer(pda::impl::GhostRelativeLocation::Front, &m_ghostGraphVec[domIdx][1]);
+                    m_subdomainVec[domIdx]->setBCPointer(pda::impl::GhostRelativeLocation::Front, m_subdomainVec[domIdx]->getStateBCs());
+                    m_subdomainVec[domIdx]->setBCPointer(pda::impl::GhostRelativeLocation::Front, &m_ghostGraphVec[domIdx][1]);
                 }
 
                 // has right neighbor
                 if (neighIdx == 2) {
-                    m_subdomainVec[domIdx]->m_app->setBCPointer(pda::impl::GhostRelativeLocation::Right, &m_subdomainVec[domIdx]->m_stateBCs);
-                    m_subdomainVec[domIdx]->m_app->setBCPointer(pda::impl::GhostRelativeLocation::Right, &m_ghostGraphVec[domIdx][2]);
+                    m_subdomainVec[domIdx]->setBCPointer(pda::impl::GhostRelativeLocation::Right, m_subdomainVec[domIdx]->getStateBCs());
+                    m_subdomainVec[domIdx]->setBCPointer(pda::impl::GhostRelativeLocation::Right, &m_ghostGraphVec[domIdx][2]);
                 }
 
                 // has back neighbor
                 if (neighIdx == 3) {
-                    m_subdomainVec[domIdx]->m_app->setBCPointer(pda::impl::GhostRelativeLocation::Back, &m_subdomainVec[domIdx]->m_stateBCs);
-                    m_subdomainVec[domIdx]->m_app->setBCPointer(pda::impl::GhostRelativeLocation::Back, &m_ghostGraphVec[domIdx][3]);
+                    m_subdomainVec[domIdx]->setBCPointer(pda::impl::GhostRelativeLocation::Back, m_subdomainVec[domIdx]->getStateBCs());
+                    m_subdomainVec[domIdx]->setBCPointer(pda::impl::GhostRelativeLocation::Back, &m_ghostGraphVec[domIdx][3]);
                 }
             }
         }
     }
 
     template <class state_t>
-    array<double, 2> calcConvergence(const state_t & state1, const state_t & state2)
+    std::array<double, 2> calcConvergence(const state_t & state1, const state_t & state2)
     {
         // TODO: assumed to be an Eigen state, not sure how to generalize
         // TODO: compute convergence for each variable separately
 
         int numDOF = state1.size();
         if (state2.size() != numDOF) {
-            cerr << "state1 size does not match state2 size, " << numDOF << " vs. " << state2.size() << endl;
+            std::cerr << "state1 size does not match state2 size, " << numDOF << " vs. " << state2.size() << std::endl;
             exit(-1);
         }
 
@@ -524,7 +525,7 @@ private:
             }
         }
 
-        array<double, 2> errArr = {abs_err, rel_err};
+        std::array<double, 2> errArr = {abs_err, rel_err};
         return errArr;
 
     }
@@ -554,7 +555,7 @@ public:
         std::vector<std::vector<double>> iterTime(ndomains);
         while (convergeStep < convergeStepMax) {
 
-            cout << "Schwarz iteration " << convergeStep + 1 << endl;
+            std::cout << "Schwarz iteration " << convergeStep + 1 << std::endl;
 
             for (int domIdx = 0; domIdx < ndomains; ++domIdx) {
 
@@ -580,7 +581,8 @@ public:
                     // important to do this before saving history, as stateHistVec still has last convergence loop's state
                     // NOTE: this is always computed on the full-order state
                     if (innerStep == (m_controlItersVec[domIdx] - 1)) {
-                        convergeVals[domIdx] = calcConvergence(m_subdomainVec[domIdx]->m_state, m_subdomainVec[domIdx]->m_stateHistVec.back());
+                        convergeVals[domIdx] = calcConvergence(*m_subdomainVec[domIdx]->getState(),
+                            m_subdomainVec[domIdx]->getLastStateInHistory()/*m_stateHistVec.back()*/);
                     }
 
                     // store intra-step history
@@ -615,8 +617,8 @@ public:
             }
             abs_err /= ndomains;
             rel_err /= ndomains;
-            cout << "Average abs err: " << abs_err << endl;
-            cout << "Average rel err: " << rel_err << endl;
+            std::cout << "Average abs err: " << abs_err << std::endl;
+            std::cout << "Average rel err: " << rel_err << std::endl;
             if ((rel_err < rel_err_tol) || (abs_err < abs_err_tol)) {
                 break;
             }
@@ -645,14 +647,14 @@ public:
 public:
 
     int m_dofPerCell;
-    shared_ptr<const Tiling> m_tiling;
-    vector<shared_ptr<SubdomainBase<mesh_t, app_t>>> & m_subdomainVec;
+    std::shared_ptr<const Tiling> m_tiling;
+    std::vector<std::shared_ptr<subdomain_base_t>> & m_subdomainVec;
     int m_bcStencilSize;
     double m_dtMax;
-    vector<double> m_dt;
-    vector<graph_t> m_exchGraphVec;
-    vector<vector<vector<int>>> m_ghostGraphVec; // 1: subdomain index, 2: edge index, 3: cell index
-    vector<int> m_controlItersVec;
+    std::vector<double> m_dt;
+    std::vector<graph_t> m_exchGraphVec;
+    std::vector<std::vector<std::vector<int>>> m_ghostGraphVec; // 1: subdomain index, 2: edge index, 3: cell index
+    std::vector<int> m_controlItersVec;
 
 };
 }

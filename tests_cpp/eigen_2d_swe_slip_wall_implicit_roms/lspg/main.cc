@@ -8,8 +8,6 @@
 #include "pressio/rom_lspg_unsteady.hpp"
 #include "pda-schwarz/rom_utils.hpp"
 
-using namespace std;
-
 int main()
 {
     pressio::log::initialize(pressio::logto::terminal);
@@ -24,8 +22,8 @@ int main()
 
     const auto meshObj = pda::load_cellcentered_uniform_mesh_eigen(".");
 
-    string transfile = "./trial_space/center.bin";
-    string basisfile = "./trial_space/basis.bin";
+    std::string transfile = "./trial_space/center.bin";
+    std::string basisfile = "./trial_space/basis.bin";
     const int nmodes = 25;
 
     constexpr auto order = pda::InviscidFluxReconstruction::FirstOrder;
@@ -44,7 +42,7 @@ int main()
     auto trans = pdas::read_vector_from_binary<scalar_type>(transfile);
     auto basis = pdas::read_matrix_from_binary<scalar_type>(basisfile, nmodes);
     const auto trialSpace = prom::create_trial_column_subspace<
-        reduced_state_type>(move(basis), move(trans), true);
+        reduced_state_type>(std::move(basis), std::move(trans), true);
 
     // project initial condition
     auto state = fomSystem.initialCondition();
