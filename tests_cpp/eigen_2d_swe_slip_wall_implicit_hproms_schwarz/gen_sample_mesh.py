@@ -8,3 +8,4 @@ gen_sample_mesh(
     percpoints=0.1,
     randseed=0,
 )
+

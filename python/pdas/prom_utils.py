@@ -475,19 +475,14 @@ def calc_projection(
 
 def gen_sample_mesh(
     samptype,
+    meshdir,
     outdir,
-    meshdir=None,
-    meshdir_decomp=None,
     percpoints=None,
     npoints=None,
     randseed=0,
 ):
     # expand as necessary
     assert samptype in ["random"]
-
-    # decomposed only works with percentage, for now
-    if meshdir_decomp is not None:
-        assert percpoints is not None
 
     # for monolithic, can specify percentage or number, not both
     assert (percpoints is not None) != (npoints is not None)
@@ -500,30 +495,56 @@ def gen_sample_mesh(
 
      # get monolithic mesh dimensions
     coords_full, coords_sub = load_meshes(meshdir)
-    assert coords_sub is None
     ndim = coords_full.shape[-1]
-    meshdims_full = coords_full.shape[:-1]
-    ncells_full = np.prod(meshdims_full)
 
     # monolithic sample mesh
-    if meshdir_decomp is None:
+    if coords_sub is None:
+
+        meshdims = coords_full.shape[:-1]
+        ncells = np.prod(meshdims)
 
         if percpoints is not None:
-            npoints = floor(ncells_full * percpoints)
+            npoints = floor(ncells * percpoints)
 
-        assert (npoints > 0) and (npoints <= ncells_full)
+        assert (npoints > 0) and (npoints <= ncells)
 
         if samptype == "random":
-            samples = gen_random_samples(0, ncells_full-1, npoints, randseed=randseed)
+            samples = gen_random_samples(0, ncells-1, npoints, randseed=randseed)
 
+        outfile = os.path.join(outdir, "sample_mesh_gids.txt")
+        print(f"Saving sample mesh global indices to {outfile}")
+        np.savetxt(outfile, samples, fmt='%8i')
 
     # decomposed sample mesh
     else:
-        raise ValueError("Decomposed sample mesh not implemented yet")
+        # decomposed only works with percentage, for now
+        assert percpoints is not None
 
-    outfile = os.path.join(outdir, "sample_mesh_gids.txt")
-    print(f"Saving sample mesh global indices to {outfile}")
-    np.savetxt(outfile, samples, fmt='%8i')
+        ndom_list, _ = load_info_domain(meshdir)
+        ndomains = np.prod(ndom_list)
+
+        for dom_idx in range(ndomains):
+            i = dom_idx % ndom_list[0]
+            j = int(dom_idx / ndom_list[0])
+            k = int(dom_idx / (ndom_list[0] * ndom_list[1]))
+
+            coords_local = coords_sub[i][j][k]
+            meshdims = coords_local.shape[:-1]
+            ncells = np.prod(meshdims)
+
+            # TODO: adjust this if enabling using npoints
+            npoints = floor(ncells * percpoints)
+
+            if samptype == "random":
+                # have to perturb random seed so sampling isn't the same in uniform subdomains
+                samples = gen_random_samples(0, ncells-1, npoints, randseed=randseed+dom_idx)
+
+            outdir_sub = os.path.join(outdir, f"domain_{dom_idx}")
+            if not os.path.isdir(outdir_sub):
+                os.mkdir(outdir_sub)
+            outfile = os.path.join(outdir_sub, "sample_mesh_gids.txt")
+            print(f"Saving sample mesh global indices to {outfile}")
+            np.savetxt(outfile, samples, fmt='%8i')
 
 
 def gen_random_samples(
