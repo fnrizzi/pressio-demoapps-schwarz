@@ -29,10 +29,6 @@ public:
     using mesh_t = mesh_type;
     using graph_t = typename mesh_t::graph_t;
 
-    virtual int nx() const = 0;
-    virtual int ny() const = 0;
-    virtual int nz() const = 0;
-
     virtual void allocateStorageForHistory(const int) = 0;
     virtual void doStep(pode::StepStartAt<double>, pode::StepCount, pode::StepSize<double>) = 0;
     virtual void storeStateHistory(const int) = 0;
@@ -76,7 +72,6 @@ public:
         const int domainIndex,
         const mesh_t & mesh,
         const graph_t & neighborGraph,
-        const std::array<int, 3> & meshFullDim,
         BCType bcLeft, BCType bcFront,
         BCType bcRight, BCType bcBack,
         prob_t probId,
@@ -85,7 +80,6 @@ public:
         const int icflag,
         const std::unordered_map<std::string, typename mesh_t::scalar_type> & userParams)
     : m_domIdx(domainIndex)
-    , m_dims(meshFullDim)
     , m_mesh(&mesh)
     , m_neighborGraph(&neighborGraph)
     , m_app(std::make_shared<app_t>(pressiodemoapps::create_problem_eigen(
@@ -98,9 +92,6 @@ public:
     , m_linSolverObj(std::make_shared<linsolver_t>())
     , m_nonlinSolver(pressio::create_newton_solver(m_stepper, *m_linSolverObj))
     {
-        // if (order != pressiodemoapps::InviscidFluxReconstruction::FirstOrder) {
-        //     std::runtime_error("Subdomain: inviscid reconstruction must be first oder");
-        // }
         init_bc_state();
 
         m_nonlinSolver.setStopTolerance(1e-5);
@@ -120,10 +111,6 @@ public:
     int getDofPerCell() const final { return m_app->numDofPerCell(); }
     const mesh_t & getMesh() const final { return *m_mesh; }
     const graph_t & getNeighborGraph() const final { return *m_neighborGraph; }
-
-    int nx() const final{ return m_dims[0]; }
-    int ny() const final{ return m_dims[1]; }
-    int nz() const final{ return m_dims[2]; }
 
     void init_bc_state()
     {
@@ -172,7 +159,6 @@ public:
 
 public:
     int m_domIdx;
-    std::array<int,3> m_dims = {};
     mesh_t const * m_mesh;
     graph_t const * m_neighborGraph;
     std::shared_ptr<app_t> m_app;
@@ -208,7 +194,6 @@ public:
         const int domainIndex,
         const mesh_t & mesh,
         const graph_t & neighborGraph,
-        const std::array<int, 3> & meshFullDim,
         BCType bcLeft, BCType bcFront,
         BCType bcRight, BCType bcBack,
         prob_t probId,
@@ -220,7 +205,6 @@ public:
         const std::string & basisRoot,
         int nmodes)
     : m_domIdx(domainIndex)
-    , m_dims(meshFullDim)
     , m_mesh(&mesh)
     , m_neighborGraph(&neighborGraph)
     , m_app(std::make_shared<app_t>(pressiodemoapps::create_problem_eigen(
@@ -235,9 +219,6 @@ public:
     , m_trialSpace(prom::create_trial_column_subspace<state_t>(std::move(m_basis), std::move(m_trans), true))
     , m_stateReduced(m_trialSpace.createReducedState())
     {
-        // if (order != pressiodemoapps::InviscidFluxReconstruction::FirstOrder){
-        //     std::runtime_error("Subdomain: inviscid reconstruction must be first oder");
-        // }
         init_bc_state();
 
         // project initial conditions
@@ -261,10 +242,6 @@ public:
     int getDofPerCell() const final { return m_app->numDofPerCell(); }
     const mesh_t & getMesh() const final { return *m_mesh; }
     const graph_t & getNeighborGraph() const final { return *m_neighborGraph; }
-
-    int nx() const final{ return m_dims[0]; }
-    int ny() const final{ return m_dims[1]; }
-    int nz() const final{ return m_dims[2]; }
 
     void init_bc_state()
     {
@@ -308,7 +285,6 @@ public:
 
 protected:
     int m_domIdx;
-    std::array<int,3> m_dims = {};
     mesh_t const * m_mesh;
     graph_t const * m_neighborGraph;
     std::shared_ptr<app_t> m_app;
@@ -355,7 +331,6 @@ public:
         const int domainIndex,
         const mesh_t & mesh,
         const graph_t & neighborGraph,
-        const std::array<int, 3> & meshFullDim,
         BCType bcLeft, BCType bcFront,
         BCType bcRight, BCType bcBack,
         prob_t probId,
@@ -367,7 +342,7 @@ public:
         const std::string & basisRoot,
         const int nmodes)
     : SubdomainROM<mesh_t, app_type>::SubdomainROM(
-        domainIndex, mesh, neighborGraph, meshFullDim,
+        domainIndex, mesh, neighborGraph,
         bcLeft, bcFront, bcRight, bcBack,
         probId, odeScheme, order, icflag, userParams,
         transRoot, basisRoot, nmodes)
@@ -399,13 +374,12 @@ auto create_meshes(std::string const & meshRoot, const int n)
     using graph_t = typename mesh_t::graph_t;
 
     std::vector<mesh_t> meshes;
-    std::vector<std::string> meshPaths;
     std::vector<graph_t> neighborGraphs(n);
 
     for (int domIdx = 0; domIdx < n; ++domIdx) {
         // read mesh
-        meshPaths.emplace_back(meshRoot + "/domain_" + std::to_string(domIdx));
-        meshes.emplace_back( pda::load_cellcentered_uniform_mesh_eigen(meshPaths.back()) );
+        std::string meshPath = meshRoot + "/domain_" + std::to_string(domIdx);
+        meshes.emplace_back( pda::load_cellcentered_uniform_mesh_eigen(meshPath) );
 
         // read neighbor connectivity
         const auto numNeighbors = (meshes.back().stencilSize() - 1) * meshes.back().dimensionality();
@@ -413,7 +387,7 @@ auto create_meshes(std::string const & meshRoot, const int n)
         pda::resize(neighborGraphs[domIdx], meshes.back().sampleMeshSize(), graphNumCols);
 
         // this is ripped directly from mesh_read_connectivity, since it doesn't generalize the file name
-        const auto inFile = meshPaths.back() + "/connectivity_neighbor.dat";
+        const auto inFile = meshPath + "/connectivity_neighbor.dat";
         std::ifstream foundFile(inFile);
         if (!foundFile) {
             std::cout << "file not found " << inFile << std::endl;
@@ -439,48 +413,7 @@ auto create_meshes(std::string const & meshRoot, const int n)
         source.close();
     }
 
-    return std::tuple(meshPaths, meshes, neighborGraphs);
-}
-
-//
-// auxiliary function to read *full* mesh dims from files
-//
-std::array<int,3> read_mesh_dims(const std::string & meshPath, int domIdx)
-{
-    // Read uniform mesh dimensions, as this was removed from PDA
-    // NOTE: this should be made obsolete when code is generalized
-    // to connectivity graph, doesn't depend on uniform mesh
-
-    const auto inFile = meshPath + "/info.dat";
-    std::ifstream foundFile(inFile);
-    if (!foundFile) {
-        std::cout << "file not found " << inFile << std::endl;
-        exit(EXIT_FAILURE);
-    }
-
-    std::array<int, 3> dims;
-    dims.fill(0); // default
-    std::ifstream source(inFile, std::ios_base::in);
-    std::string line;
-    while (getline(source, line)) {
-        std::istringstream ss(line);
-        std::string colVal;
-        ss >> colVal;
-        if (colVal == "nx") {
-            ss >> colVal;
-            dims[0] = stoi(colVal);
-        }
-        else if (colVal == "ny") {
-            ss >> colVal;
-            dims[1] = stoi(colVal);
-        }
-        else if (colVal == "nz") {
-            ss >> colVal;
-            dims[2] = stoi(colVal);
-        }
-    }
-    source.close();
-    return dims;
+    return std::pair(meshes, neighborGraphs);
 }
 
 //
@@ -488,7 +421,6 @@ std::array<int,3> read_mesh_dims(const std::string & meshPath, int domIdx)
 //
 template<class app_t, class mesh_t, class graph_t, class prob_t>
 auto create_subdomains(
-    const std::vector<std::string> & meshPaths,
     const std::vector<mesh_t> & meshes,
     const std::vector<graph_t> & neighborGraphs,
     const Tiling & tiling,
@@ -502,7 +434,7 @@ auto create_subdomains(
     std::vector<std::string> domFlagVec(ndomains, "FOM");
     std::vector<int> nmodesVec(ndomains, -1);
 
-    return create_subdomains<app_t>(meshPaths, meshes, neighborGraphs, tiling,
+    return create_subdomains<app_t>(meshes, neighborGraphs, tiling,
         probId, odeScheme, order,
         domFlagVec, "", "", nmodesVec, icFlag, userParams);
 
@@ -513,7 +445,6 @@ auto create_subdomains(
 //
 template<class app_t, class mesh_t, class graph_t, class prob_t>
 auto create_subdomains(
-    const std::vector<std::string> & meshPaths,
     const std::vector<mesh_t> & meshes,
     const std::vector<graph_t> & neighborGraphs,
     const Tiling & tiling,
@@ -573,19 +504,15 @@ auto create_subdomains(
             bcFront = getPhysBCs(probId, pda::impl::GhostRelativeLocation::Front);
         }
 
-        // mesh dimensions (non-hyper-reduced only)
-        // TODO: remove meshPaths after neighbor graphs implemented
-        const auto meshFullDims = read_mesh_dims(meshPaths[domIdx], domIdx);
-
         if (domFlagVec[domIdx] == "FOM") {
             result.emplace_back(std::make_shared<SubdomainFOM<mesh_t, app_t>>(
-                domIdx, meshes[domIdx], neighborGraphs[domIdx], meshFullDims,
+                domIdx, meshes[domIdx], neighborGraphs[domIdx],
                 bcLeft, bcFront, bcRight, bcBack,
                 probId, odeScheme, order, icFlag, userParams));
         }
         else if (domFlagVec[domIdx] == "LSPG") {
             result.emplace_back(std::make_shared<SubdomainLSPG<mesh_t, app_t>>(
-                domIdx, meshes[domIdx], neighborGraphs[domIdx], meshFullDims,
+                domIdx, meshes[domIdx], neighborGraphs[domIdx],
                 bcLeft, bcFront, bcRight, bcBack,
                 probId, odeScheme, order, icFlag, userParams,
                 transRoot, basisRoot, nmodesVec[domIdx]));
