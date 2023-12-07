@@ -12,7 +12,13 @@ int main()
 
     namespace pda = pressiodemoapps;
     const auto meshObj = pda::load_cellcentered_uniform_mesh_eigen(".");
-    constexpr auto order = pda::InviscidFluxReconstruction::FirstOrder;
+#ifdef USE_WENO5
+    const auto order   = pda::InviscidFluxReconstruction::Weno5;
+#elif defined USE_WENO3
+    const auto order   = pda::InviscidFluxReconstruction::Weno3;
+#else
+    const auto order   = pda::InviscidFluxReconstruction::FirstOrder;
+#endif
     const auto probId = pda::Euler2d::Riemann;
     const int icFlag = 2;
 

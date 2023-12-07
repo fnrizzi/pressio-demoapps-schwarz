@@ -13,7 +13,8 @@ namespace pdaschwarz{
 namespace pda = pressiodemoapps;
 
 enum class BCType {
-    HomogNeumann,
+    HomogNeumannVert,
+    HomogNeumannHoriz,
     SlipWallVert,
     SlipWallHoriz,
     SchwarzDirichlet,
@@ -51,20 +52,23 @@ struct BCFunctor
     {
         switch(m_bcSwitch)
         {
-            case BCType::HomogNeumann:
-                HomogNeumannBC(std::forward<Args>(args)...);
-		        break;
-            case BCType::SchwarzDirichlet:
-                SchwarzDirichletBC(std::forward<Args>(args)...);
-		        break;
+            case BCType::HomogNeumannVert:
+                HomogNeumannVertBC(std::forward<Args>(args)...);
+                break;
+            case BCType::HomogNeumannHoriz:
+                HomogNeumannHorizBC(std::forward<Args>(args)...);
+                break;
             case BCType::SlipWallVert:
                 SlipWallVertBC(std::forward<Args>(args)...);
                 break;
             case BCType::SlipWallHoriz:
                 SlipWallHorizBC(std::forward<Args>(args)...);
                 break;
+            case BCType::SchwarzDirichlet:
+                SchwarzDirichletBC(std::forward<Args>(args)...);
+                break;
             default:
-	      throw std::runtime_error("Invalid probId for getPhysBCs()");
+          throw std::runtime_error("Invalid probId for getPhysBCs()");
         };
     }
 
@@ -75,21 +79,119 @@ private:
     =========================*/
 
     template<class ConnecRowType, class StateT, class T>
-    void HomogNeumannBC(
+    void HomogNeumannVertBC(
         const int /*unused*/, ConnecRowType const & connectivityRow,
         const double cellX, const double cellY,
         const StateT & currentState, int numDofPerCell,
         const double cellWidth, T & ghostValues) const
     {
+
+        // TODO: generalize to 1D/3D
+
+        // this operates under the assumption that this cell does not have ghost cells in two parallel walls
+        int stencilSize1D = ghostValues.cols() / numDofPerCell;
         const int cellGID = connectivityRow[0];
         const auto uIndex  = cellGID * numDofPerCell;
+
+        const auto left0  = connectivityRow[1];
+        const auto right0  = connectivityRow[3];
+        if ((left0 == -1) && (right0 == -1)) {
+            throw std::runtime_error("Should not have walls to left and right of same cell");
+        }
+
+        if ((left0 == -1) || (right0 == -1)) {
+            for (int i = 0; i < numDofPerCell; ++i) {
+                ghostValues[i] = currentState(uIndex+i);
+            }
+        }
+
+        // TODO: extend to WENO5
+        if (stencilSize1D > 1) {
+            const auto left1  = connectivityRow[5];
+            const auto right1  = connectivityRow[7];
+            if ((left1 == -1) && (right1 == -1)) {
+                throw std::runtime_error("Should not have walls to left and right of same cell");
+            }
+
+            // TODO: I don't think this is actually valid for cells that are more than 1 cell away from the boundary?
+            if (left1 == -1) {
+                const auto ind = right0*numDofPerCell;
+                for (int i = 0; i < numDofPerCell; ++i) {
+                    ghostValues[numDofPerCell + i] = currentState(ind+i);
+                }
+            }
+            if (right1 == -1) {
+                const auto ind = left0*numDofPerCell;
+                for (int i = 0; i < numDofPerCell; ++i) {
+                    ghostValues[numDofPerCell + i] = currentState(ind+i);
+                }
+            }
+        }
+
+    }
+
+    template<class ConnecRowType, class FactorsType>
+    void HomogNeumannVertBC(
+        ConnecRowType const & connectivityRow,
+        const double cellX, const double cellY,
+        int numDofPerCell, FactorsType & factorsForBCJac) const
+    {
         for (int i = 0; i < numDofPerCell; ++i) {
-            ghostValues[i] = currentState(uIndex+i);
+            factorsForBCJac[i] = 1.0;
+        }
+    }
+
+    template<class ConnecRowType, class StateT, class T>
+    void HomogNeumannHorizBC(
+        const int /*unused*/, ConnecRowType const & connectivityRow,
+        const double cellX, const double cellY,
+        const StateT & currentState, int numDofPerCell,
+        const double cellWidth, T & ghostValues) const
+    {
+        // TODO: generalize to 3D
+
+        // this operates under the assumption that this cell does not have ghost cells in two parallel walls
+        int stencilSize1D = ghostValues.cols() / numDofPerCell;
+        const int cellGID = connectivityRow[0];
+        const auto uIndex  = cellGID * numDofPerCell;
+
+        const auto front0  = connectivityRow[2];
+        const auto back0  = connectivityRow[4];
+        if ((front0 == -1) && (back0 == -1)) {
+            throw std::runtime_error("Should not have walls to left and right of same cell");
+        }
+
+        if ((front0 == -1) || (back0 == -1)) {
+            for (int i = 0; i < numDofPerCell; ++i) {
+                ghostValues[i] = currentState(uIndex+i);
+            }
+        }
+
+        // TODO: extend to WENO5
+        if (stencilSize1D > 1) {
+            const auto front1  = connectivityRow[6];
+            const auto back1  = connectivityRow[8];
+            if ((front1 == -1) && (back1 == -1)) {
+                throw std::runtime_error("Should not have walls to left and right of same cell");
+            }
+
+            if (front1 == -1) {
+                const auto ind = back0*numDofPerCell;
+                for (int i = 0; i < numDofPerCell; ++i) {
+                    ghostValues[numDofPerCell + i] = currentState(ind+i);
+                }
+            }
+            if (back1 == -1) {
+                const auto ind = front0*numDofPerCell;
+                for (int i = 0; i < numDofPerCell; ++i) {
+                    ghostValues[numDofPerCell + i] = currentState(ind+i);
+                }
+            }
         }
     }
 
     template<class ConnecRowType, class FactorsType>
-    void HomogNeumannBC(
+    void HomogNeumannHorizBC(
         ConnecRowType const & connectivityRow,
         const double cellX, const double cellY,
         int numDofPerCell, FactorsType & factorsForBCJac) const
@@ -284,11 +386,19 @@ auto getPhysBCs(pda::Euler2d probId, pda::impl::GhostRelativeLocation rloc)
     {
         case pda::Euler2d::Riemann:
             // All boundaries are homogeneous Neumann
-            return BCType::HomogNeumann;
+            if ((rloc == pda::impl::GhostRelativeLocation::Left) || (rloc == pda::impl::GhostRelativeLocation::Right)) {
+                return BCType::HomogNeumannVert;
+            }
+            else if ((rloc == pda::impl::GhostRelativeLocation::Front) || (rloc == pda::impl::GhostRelativeLocation::Back)) {
+                return BCType::HomogNeumannHoriz;
+            }
+            else {
+                throw std::runtime_error("Unexpected GhostRelativeLocation");
+            }
             break;
 
         default:
-	  throw std::runtime_error("Invalid probId for getPhysBCs()");
+            throw std::runtime_error("Invalid probId for getPhysBCs()");
 
     }
 }
@@ -308,12 +418,12 @@ auto getPhysBCs(pda::Swe2d probId, pda::impl::GhostRelativeLocation rloc)
                 return BCType::SlipWallHoriz;
             }
             else {
-	      throw std::runtime_error("Unexpected GhostRelativeLocation");
+                throw std::runtime_error("Unexpected GhostRelativeLocation");
             }
             break;
 
         default:
-	  throw std::runtime_error("Invalid probId for getPhysBCs()");
+            throw std::runtime_error("Invalid probId for getPhysBCs()");
 
     }
 }

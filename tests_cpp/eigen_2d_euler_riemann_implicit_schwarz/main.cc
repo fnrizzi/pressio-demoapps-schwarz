@@ -16,7 +16,13 @@ int main()
 
     // problem definition
     const auto probId = pda::Euler2d::Riemann;
-    const auto order  = pda::InviscidFluxReconstruction::FirstOrder;
+#ifdef USE_WENO5
+    const auto order   = pda::InviscidFluxReconstruction::Weno5;
+#elif defined USE_WENO3
+    const auto order   = pda::InviscidFluxReconstruction::Weno3;
+#else
+    const auto order   = pda::InviscidFluxReconstruction::FirstOrder;
+#endif
     const auto scheme = pode::StepScheme::CrankNicolson;
     const int icFlag = 2;
     using app_t = pdas::euler2d_app_type;

@@ -1,11 +1,12 @@
 
-set(testname eigen_2d_swe_slip_wall_weno3_implicit_schwarz)
+set(testname eigen_2d_riemann_weno3_implicit_schwarz)
 set(exename  ${testname}_exe)
 
 configure_file(../plot.py plot.py COPYONLY)
 configure_file(../compare.py compare.py COPYONLY)
 foreach(DOM RANGE 3)
-  configure_file(h_gold_${DOM}.txt h_gold_${DOM}.txt COPYONLY)
+  configure_file(p_gold_${DOM}.txt p_gold_${DOM}.txt COPYONLY)
+  configure_file(rho_gold_${DOM}.txt rho_gold_${DOM}.txt COPYONLY)
 endforeach()
 
 add_executable(${exename} ${CMAKE_CURRENT_SOURCE_DIR}/../main.cc)
