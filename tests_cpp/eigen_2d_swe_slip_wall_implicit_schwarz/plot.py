@@ -1,3 +1,4 @@
+import os
 
 from pdas.vis_utils import plot_contours
 
@@ -9,6 +10,9 @@ from pdas.vis_utils import plot_contours
 varplot = 0
 
 # ----- END USER INPUTS -----
+
+exe_dir = os.path.dirname(os.path.realpath(__file__))
+order = os.path.basename(os.path.normpath(exe_dir))
 
 if varplot == 0:
     varlabel = r"Height"
@@ -29,8 +33,8 @@ elif varplot == 2:
 # TODO: modify monolithic directory to correct stencil order
 plot_contours(
     varplot,
-    meshdirs=["../../eigen_2d_swe_slip_wall_implicit/firstorder/", "./mesh",],
-    datadirs=["../../eigen_2d_swe_slip_wall_implicit/firstorder/", "./"],
+    meshdirs=[f"../../eigen_2d_swe_slip_wall_implicit/{order}/", "./mesh",],
+    datadirs=[f"../../eigen_2d_swe_slip_wall_implicit/{order}/", "./"],
     nvars=3,
     dataroot="swe_slipWall2d_solution",
     plotlabels=["Monolithic", "Schwarz 2x2"],

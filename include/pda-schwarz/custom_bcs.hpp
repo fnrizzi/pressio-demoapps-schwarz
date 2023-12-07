@@ -106,12 +106,50 @@ private:
         const StateT & currentState, int numDofPerCell,
         const double cellWidth, T & ghostValues) const
     {
+        // TODO: generalize to 1D/3D
+
+        // this operates under the assumption that this cell does not have ghost cells in two parallel walls
+        int stencilSize1D = ghostValues.cols() / numDofPerCell;
         const int cellGID = connectivityRow[0];
         const auto uIndex  = cellGID * numDofPerCell;
-        for (int i = 0; i < numDofPerCell; ++i) {
-            ghostValues[i] = currentState(uIndex+i);
+
+        const auto left0  = connectivityRow[1];
+        const auto right0  = connectivityRow[3];
+        if ((left0 == -1) && (right0 == -1)) {
+            throw std::runtime_error("Should not have walls to left and right of same cell");
         }
-        ghostValues[1] *= -1.0; // reverse x-momentum
+
+        if ((left0 == -1) || (right0 == -1)) {
+            for (int i = 0; i < numDofPerCell; ++i) {
+                ghostValues[i] = currentState(uIndex+i);
+            }
+            ghostValues[1] *= -1.0; // reverse x-momentum
+        }
+
+        // TODO: extend to WENO5
+        if (stencilSize1D > 1) {
+            const auto left1  = connectivityRow[5];
+            const auto right1  = connectivityRow[7];
+            if ((left1 == -1) && (right1 == -1)) {
+                throw std::runtime_error("Should not have walls to left and right of same cell");
+            }
+
+            // TODO: I don't think this is actually valid for cells that are more than 1 cell away from the boundary?
+            if (left1 == -1) {
+                const auto ind = right0*numDofPerCell;
+                for (int i = 0; i < numDofPerCell; ++i) {
+                    ghostValues[numDofPerCell + i] = currentState(ind+i);
+                }
+                ghostValues[numDofPerCell + 1] *= -1.0; // reverse x-momentum
+            }
+            if (right1 == -1) {
+                const auto ind = left0*numDofPerCell;
+                for (int i = 0; i < numDofPerCell; ++i) {
+                    ghostValues[numDofPerCell + i] = currentState(ind+i);
+                }
+                ghostValues[numDofPerCell + 1] *= -1.0; // reverse x-momentum
+            }
+        }
     }
 
     template<class ConnecRowType, class FactorsType>
@@ -133,12 +171,49 @@ private:
         const StateT & currentState, int numDofPerCell,
         const double cellWidth, T & ghostValues) const
     {
+        // TODO: generalize to 3D
+
+        // this operates under the assumption that this cell does not have ghost cells in two parallel walls
+        int stencilSize1D = ghostValues.cols() / numDofPerCell;
         const int cellGID = connectivityRow[0];
         const auto uIndex  = cellGID * numDofPerCell;
-        for (int i = 0; i < numDofPerCell; ++i) {
-            ghostValues[i] = currentState(uIndex+i);
+
+        const auto front0  = connectivityRow[2];
+        const auto back0  = connectivityRow[4];
+        if ((front0 == -1) && (back0 == -1)) {
+            throw std::runtime_error("Should not have walls to left and right of same cell");
         }
-        ghostValues[2] *= -1.0; // reverse y-momentum
+
+        if ((front0 == -1) || (back0 == -1)) {
+            for (int i = 0; i < numDofPerCell; ++i) {
+                ghostValues[i] = currentState(uIndex+i);
+            }
+            ghostValues[2] *= -1.0; // reverse y-momentum
+        }
+
+        // TODO: extend to WENO5
+        if (stencilSize1D > 1) {
+            const auto front1  = connectivityRow[6];
+            const auto back1  = connectivityRow[8];
+            if ((front1 == -1) && (back1 == -1)) {
+                throw std::runtime_error("Should not have walls to left and right of same cell");
+            }
+
+            if (front1 == -1) {
+                const auto ind = back0*numDofPerCell;
+                for (int i = 0; i < numDofPerCell; ++i) {
+                    ghostValues[numDofPerCell + i] = currentState(ind+i);
+                }
+                ghostValues[numDofPerCell + 2] *= -1.0; // reverse y-momentum
+            }
+            if (back1 == -1) {
+                const auto ind = front0*numDofPerCell;
+                for (int i = 0; i < numDofPerCell; ++i) {
+                    ghostValues[numDofPerCell + i] = currentState(ind+i);
+                }
+                ghostValues[numDofPerCell + 2] *= -1.0; // reverse y-momentum
+            }
+        }
     }
 
     template<class ConnecRowType, class FactorsType>

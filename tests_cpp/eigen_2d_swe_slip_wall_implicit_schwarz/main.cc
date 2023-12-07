@@ -16,7 +16,6 @@ int main()
 
     // problem definition
     const auto probId = pda::Swe2d::CustomBCs;
-    // const auto order  = pda::InviscidFluxReconstruction::FirstOrder;
 #ifdef USE_WENO5
     const auto order   = pda::InviscidFluxReconstruction::Weno5;
 #elif defined USE_WENO3
