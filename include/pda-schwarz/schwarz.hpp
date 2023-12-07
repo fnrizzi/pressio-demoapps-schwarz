@@ -15,8 +15,6 @@
 #include <chrono>
 
 
-
-
 namespace pdaschwarz{
 
 namespace pda = pressiodemoapps;
@@ -66,27 +64,21 @@ public:
         : m_tiling(tiling)
         , m_subdomainVec(subdomains)
     {
-        m_dofPerCell = m_subdomainVec[0]->getDofPerCell();//m_app->numDofPerCell();
+        m_dofPerCell = m_subdomainVec[0]->getDofPerCell();
 
         setup_controller(dtVec);
         for (int domIdx = 0; domIdx < (int) m_subdomainVec.size(); ++domIdx) {
             m_subdomainVec[domIdx]->allocateStorageForHistory(m_controlItersVec[domIdx]);
         }
 
-        // set up communication patterns
-        // FIXME: need to move this m_bcStencilSize somwwhere else
-        m_bcStencilSize = 1; ///(pressiodemoapps::reconstructionTypeToStencilSize(order) - 1) / 2;
-        // check_mesh_compat(); // a little error checking
-        calc_exch_graph(m_bcStencilSize);
-
-        // first communication
+        // set up communication patterns, first communication
+        calc_exch_graph();
         for (int domIdx = 0; domIdx < (int) m_subdomainVec.size(); ++domIdx) {
             broadcast_bcState(domIdx);
         }
 
         // set up ghost filling graph, boundary pointers
         calc_ghost_graph();
-        assignBCPointers();
 
     }
 
@@ -124,109 +116,54 @@ private:
         }
     }
 
-    void check_mesh_compat()
+    // determines whether LOCAL neighbor orientation indices correspond to the same neighbors
+    // deals with weird ordering difference in 1D
+    bool is_neighbor_pair(int id1, int id2)
     {
-        const auto & tiling = *m_tiling;
-        const auto exchDomIds = tiling.exchDomIdVec();
+        if (id1 == id2) {
+            return false;
+        }
+        // increasing order
+        if (id1 > id2) {
+            int temp = id2;
+            id2 = id1;
+            id1 = temp;
+        }
 
-        // TODO: extend this for differing (but aligned) mesh resolutions
-        if (tiling.dim() == 1) return; // TODO: still need to check for differing 1D resolutions
+        if ((*m_tiling).dim() == 1) {
+            if ((id1 == 0) && (id2 == 1)) { return true; }
+            else { return false; }
+        }
+        else if ((*m_tiling).dim() >= 2) {
+            if ((id1 == 0) && (id2 == 2)) { return true; }
+            else if ((id1 == 1) && (id2 == 3)) { return true; }
 
-        for (int domIdx = 0; domIdx < tiling.count(); ++domIdx) {
+            if ((*m_tiling).dim() == 3) {
+                if ((id1 == 4) && (id2 == 5)) { return true; }
+                else { return false; }
+            }
+            else {
+                return false;
+            }
+        }
 
-            int nx = m_subdomainVec[domIdx]->nx();
-            int ny = m_subdomainVec[domIdx]->ny();
-            int nz = m_subdomainVec[domIdx]->nz();
-
-            for (int neighIdx = 0; neighIdx < (int) exchDomIds[domIdx].size(); ++neighIdx) {
-
-                int neighDomIdx = exchDomIds[domIdx][neighIdx];
-                if (neighDomIdx == -1) {
-                    continue;  // not a Schwarz BC
-                }
-
-                int nxNeigh = m_subdomainVec[neighDomIdx]->nx();
-                int nyNeigh = m_subdomainVec[neighDomIdx]->ny();
-                int nzNeigh = m_subdomainVec[neighDomIdx]->nz();
-
-		using std::to_string;
-                auto xerr = "Mesh x-dimension mismatch for domains " + to_string(domIdx) + " v " + to_string(neighDomIdx) + ": " + to_string(nx) + " != " + to_string(nxNeigh);
-                auto yerr = "Mesh y-dimension mismatch for domains " + to_string(domIdx) + " v " + to_string(neighDomIdx) + ": " + to_string(ny) + " != " + to_string(nyNeigh);
-                auto zerr = "Mesh z-dimension mismatch for domains " + to_string(domIdx) + " v " + to_string(neighDomIdx) + ": " + to_string(nz) + " != " + to_string(nzNeigh);
-
-                // left and right
-                if ((neighIdx == 0) || (neighIdx == 2)) {
-                    if (ny != nyNeigh) {
-                        std::cerr << yerr << std::endl;
-                        exit(-1);
-                    }
-                    if (nz != nzNeigh) {
-                        std::cerr << zerr << std::endl;
-                        exit(-1);
-                    }
-                }
-
-                // front and back
-                if ((neighIdx == 1) || (neighIdx == 3)) {
-                    if (nx != nxNeigh) {
-                        std::cerr << xerr << std::endl;
-                        exit(-1);
-                    }
-                    if (nz != nzNeigh) {
-                        std::cerr << zerr << std::endl;
-                        exit(-1);
-                    }
-                }
-
-                // bottom and top
-                if ((neighIdx == 4) || (neighIdx == 5)) {
-                    if (nx != nxNeigh) {
-                        std::cerr << xerr << std::endl;
-                        exit(-1);
-                    }
-                    if (ny != nyNeigh) {
-                        std::cerr << yerr << std::endl;
-                        exit(-1);
-                    }
-                }
-
-            } // domain loop
-        } // neightbor loop
+        return false;
     }
 
-    void calc_exch_graph(const int bcStencil)
+    void calc_exch_graph()
     {
         // TODO: extend to 3D
 
-        // BC cell indexing example
-        // L/R is from bottom to top, F/B is from left to right
-        // Trying to mix cell ordering and face ordering
-        //                  _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
-        //                 ¦_(4, 1)_¦_(5, 1)_¦_(6, 1)_¦_(7, 1)_¦_(8, 1)_¦
-        //  _ _ _ _ _ _ _ _¦_(4, 0)_¦_(5, 0)_¦_(6, 0)_¦_(7, 0)_¦_(8, 0)_¦_ _ _ _ _ _ _ _ _
-        // ¦_(3,1)_¦_(3,0)_|________|________|________|________|________|_(12,1)_¦_(12,0)_|
-        // ¦_(2,1)_¦_(2,0)_|________|________|________|________|________|_(11,1)_¦_(11,0)_|
-        // ¦_(1,1)_¦_(1,0)_|________|________|________|________|________|_(10,1)_¦_(10,0)_|
-        // ¦_(0,1)_¦_(0,0)_|________|________|________|________|________|_(9, 1)_¦_(9, 0)_|
-        //                 ¦_(13,0)_¦_(14,0)_¦_(15,0)_¦_(16,0)_¦_(17,0)_¦
-        //                 ¦_(13,1)_¦_(14,1)_¦_(15,1)_¦_(16,1)_¦_(17,1)_¦
-
         const auto & tiling = *m_tiling;
-        m_exchGraphVec.resize(tiling.count());
+        m_broadcastGraphVec.resize(tiling.count());
 
-        const auto overlap = tiling.overlap();
         const auto exchDomIds = tiling.exchDomIdVec();
         for (int domIdx = 0; domIdx < tiling.count(); ++domIdx) {
 
-            // this domain's mesh and dimensions
-            int nx = m_subdomainVec[domIdx]->nx();
-            int ny = m_subdomainVec[domIdx]->ny();
+            // entry for every possible neighbor
+            m_broadcastGraphVec[domIdx].resize(2 * tiling.dim());
 
-            // TODO: generalize to 3D
-            pda::resize(m_exchGraphVec[domIdx], 2*nx + 2*ny, bcStencil);
-            m_exchGraphVec[domIdx].fill(-1);
-
-            // loop through neighboring domains
+            // determine broadcast pattern to neighbors
             for (int neighIdx = 0; neighIdx < (int) exchDomIds[domIdx].size(); ++neighIdx) {
 
                 int neighDomIdx = exchDomIds[domIdx][neighIdx];
@@ -234,151 +171,54 @@ private:
                     continue;  // not a Schwarz BC
                 }
 
-                // neighboring domain mesh and dimensions
-                int nxNeigh = m_subdomainVec[neighDomIdx]->nx();
-                int nyNeigh = m_subdomainVec[neighDomIdx]->ny();
+                const auto & neighMeshObj = m_subdomainVec[neighDomIdx]->getMesh();
+                const auto & neighNeighborGraph = m_subdomainVec[neighDomIdx]->getNeighborGraph();
+                const auto & neighRowsBd = neighMeshObj.graphRowsOfCellsNearBd();
 
-                int exchCellIdx;
-
-                // east-west neighbors will share a row index
-                // left
-                if (neighIdx == 0) {
-                    int bcCellIdx = 0; // left boundary is the start
-                    for (int yIdx = 0; yIdx < ny; ++yIdx) {
-                        for (int stencilIdx = 0; stencilIdx < bcStencil; ++stencilIdx) {
-                        exchCellIdx = (nxNeigh * (yIdx + 1) - 1) - overlap - stencilIdx;
-                        m_exchGraphVec[domIdx](bcCellIdx, stencilIdx) = exchCellIdx;
+                // count number of cells to be broadcast to this neighbor
+                // TODO: for true parallelism, can just split this as the send/recv indices
+                int broadcastCount = 0;
+                int ghostCount = 0;
+                for (int bdIdx = 0; bdIdx < neighRowsBd.size(); ++bdIdx) {
+                    auto rowIdx = neighRowsBd[bdIdx];
+                    for (int colIdx = 1; colIdx < neighNeighborGraph.cols(); ++colIdx) {
+                        int broadcastGID = neighNeighborGraph(rowIdx, colIdx);
+                        if (broadcastGID != -1) {
+                            int gatherIdx = (colIdx - 1) % (2 * tiling.dim());
+                            if (is_neighbor_pair(neighIdx, gatherIdx)) {
+                                m_broadcastGraphVec[domIdx][neighIdx].push_back({broadcastGID, ghostCount});
+                            }
+                            ghostCount++;
                         }
-                        bcCellIdx++;
                     }
                 }
-
-                // north-south neighbors will share a column index
-                // "front"
-                if (neighIdx == 1) {
-                    int bcCellIdx = ny * bcStencil;  // skip left boundary indices
-                    for (int xIdx = 0; xIdx < nx; ++xIdx) {
-                        for (int stencilIdx = 0; stencilIdx < bcStencil; ++stencilIdx) {
-                            exchCellIdx = (overlap + stencilIdx) * nxNeigh + xIdx;
-                            m_exchGraphVec[domIdx](bcCellIdx, stencilIdx) = exchCellIdx;
-                        }
-                        bcCellIdx++;
-                    }
-                }
-
-                // right
-                if (neighIdx == 2) {
-                    int bcCellIdx = (ny + nx) * bcStencil; // skip left and "front" boundary indices
-                    for (int yIdx = 0; yIdx < ny; ++yIdx) {
-                        for (int stencilIdx = 0; stencilIdx < bcStencil; ++stencilIdx) {
-                            exchCellIdx = nxNeigh * yIdx + overlap + stencilIdx;
-                            m_exchGraphVec[domIdx](bcCellIdx, stencilIdx) = exchCellIdx;
-                        }
-                        bcCellIdx++;
-                    }
-                }
-
-                // "back"
-                if (neighIdx == 3) {
-                    int bcCellIdx = (2*ny + nx) * bcStencil;  // skip left, "front", and right boundary indices
-                    for (int xIdx = 0; xIdx < nx; ++xIdx) {
-                        for (int stencilIdx = 0; stencilIdx < bcStencil; ++stencilIdx) {
-                            exchCellIdx = (nyNeigh - 1 - overlap - stencilIdx) * nxNeigh + xIdx;
-                            m_exchGraphVec[domIdx](bcCellIdx, stencilIdx) = exchCellIdx;
-                        }
-                        bcCellIdx++;
-                    }
-                }
-
-                // TODO: generalize to 3D
 
             } // neighbor loop
         } // domain loop
-    }
-
-    template<class state_t>
-    void comm_stateBc(
-        const int startIdx,
-        const int endIdx,
-        const graph_t & exchGraph,
-        state_t & bcState,
-        const state_t & intState)
-    {
-        int exchCellIdx;
-
-        for (int bcCellIdx = startIdx; bcCellIdx < endIdx; ++bcCellIdx) {
-            for (int stencilIdx = 0; stencilIdx < m_bcStencilSize; ++stencilIdx) {
-                exchCellIdx = exchGraph(bcCellIdx, stencilIdx);
-                for (int dof = 0; dof < m_dofPerCell; ++dof) {
-                    bcState((bcCellIdx + stencilIdx) * m_dofPerCell + dof) = intState(exchCellIdx * m_dofPerCell + dof);
-                }
-            }
-        }
     }
 
     void broadcast_bcState(const int domIdx)
     {
         const auto & tiling = *m_tiling;
         const auto & exchDomIdVec = tiling.exchDomIdVec();
-        const auto* domState = m_subdomainVec[domIdx]->getState();
+        const auto * state = m_subdomainVec[domIdx]->getState();
 
-        int startIdx, endIdx;
-        for (int neighIdx = 0; neighIdx < (int) exchDomIdVec[domIdx].size(); ++neighIdx) {
+        for (auto neighIdx = 0; neighIdx < exchDomIdVec[domIdx].size(); ++neighIdx) {
 
             int neighDomIdx = exchDomIdVec[domIdx][neighIdx];
             if (neighDomIdx == -1) {
                 continue;  // not a Schwarz BC
             }
 
-            int nxNeigh = m_subdomainVec[neighDomIdx]->nx();
-            int nyNeigh = m_subdomainVec[neighDomIdx]->ny();
-            auto* neighStateBCs = m_subdomainVec[neighDomIdx]->getStateBCs();
-            const auto & neighExchGraph = m_exchGraphVec[neighDomIdx];
+            auto * neighStateBCs = m_subdomainVec[neighDomIdx]->getStateBCs();
 
-            // TODO: extend to 3D, need to change L/R and F/B indices to account for nzNeigh
-
-            // this domain is the neighboring domain's left neighbor
-            if (neighIdx == 2) {
-                startIdx = 0;
-                endIdx = nyNeigh;
-                comm_stateBc(startIdx, endIdx, neighExchGraph, *neighStateBCs, *domState);
+            for (auto bcIdx = 0; bcIdx < m_broadcastGraphVec[domIdx][neighIdx].size(); ++bcIdx) {
+                auto sourceGID = m_broadcastGraphVec[domIdx][neighIdx][bcIdx][0];
+                auto targetBCID = m_broadcastGraphVec[domIdx][neighIdx][bcIdx][1];
+                for (auto dofIdx = 0; dofIdx < m_dofPerCell; ++dofIdx) {
+                    (*neighStateBCs)(targetBCID * m_dofPerCell + dofIdx) = (*state)(sourceGID * m_dofPerCell + dofIdx);
+                }
             }
-
-            // this domain is the neighboring domain's front neighbor
-            if (neighIdx == 3) {
-                startIdx = nyNeigh;
-                endIdx = nyNeigh + nxNeigh;
-                comm_stateBc(startIdx, endIdx, neighExchGraph, *neighStateBCs, *domState);
-            }
-
-            // this domain is the neighboring domain's right neighbor
-            if (neighIdx == 0) {
-                startIdx = nyNeigh + nxNeigh;
-                endIdx = 2 * nyNeigh + nxNeigh;
-                comm_stateBc(startIdx, endIdx, neighExchGraph, *neighStateBCs, *domState);
-            }
-
-            // this domain is the neighboring domain's back neighbor
-            if (neighIdx == 1) {
-                startIdx = 2 * nyNeigh + nxNeigh;
-                endIdx = 2 * nyNeigh + 2 * nxNeigh;
-                comm_stateBc(startIdx, endIdx, neighExchGraph, *neighStateBCs, *domState);
-            }
-
-            // this domain is the neighboring domain's bottom neighbor
-            // if (neighIdx == 5) {
-            //   startIdx = ;
-            //   endIdx = ;
-            // }
-
-            // this domain is the neighboring domain's top neighbor
-            // if (neighIdx == 4) {
-            //   startIdx = ;
-            //   endIdx = ;
-            // }
-
-            // comm_stateBc(startIdx, endIdx, neighExchGraph, *neighStateBc, domState);
-
         }
     }
 
@@ -391,108 +231,66 @@ private:
         for (int domIdx = 0; domIdx < tiling.count(); ++domIdx) {
 
             const auto & meshObj = m_subdomainVec[domIdx]->getMesh();
-            const auto intGraph = meshObj.graph();
-            int nx = m_subdomainVec[domIdx]->nx();
-            int ny = m_subdomainVec[domIdx]->ny();
-            // int nz = m_subdomainVec[domIdx]->nz();
-
-            // unique mask for each subdomain edge
+            const auto & neighborGraph = m_subdomainVec[domIdx]->getNeighborGraph();
             const auto & rowsBd = meshObj.graphRowsOfCellsNearBd();
+            const auto stencilSize1D = (meshObj.stencilSize() - 1) / 2;
+
             m_ghostGraphVec[domIdx].resize(2 * tiling.dim());
-            for (int bcIdx = 0; bcIdx < 2 * tiling.dim(); ++bcIdx) {
-                m_ghostGraphVec[domIdx][bcIdx].resize(int(rowsBd.size()), -1);
+            for (int neighIdx = 0; neighIdx < exchDomIdVec[domIdx].size(); ++neighIdx) {
+                pda::resize(m_ghostGraphVec[domIdx][neighIdx], (int) rowsBd.size(), stencilSize1D);
+                m_ghostGraphVec[domIdx][neighIdx].fill(-1);
             }
 
-            for (decltype(rowsBd.size()) it = 0; it < rowsBd.size(); ++it) {
+            int ghostCount = 0;
+            for (auto bdIdx = 0; bdIdx < rowsBd.size(); ++bdIdx) {
+                int rowIdx = rowsBd[bdIdx];
+                for (int colIdx = 1; colIdx < neighborGraph.cols(); ++colIdx) {
+                    int nieghGID = neighborGraph(rowIdx, colIdx);
+                    if (nieghGID != -1) {
+                        int neighIdx = (colIdx - 1) % (2 * tiling.dim());
+                        int stencilIdx = (colIdx - 1) / (2 * tiling.dim());
 
-                // ASK FR: is there an instance when rowsBd[it] != intGraph(rowsBd[it], 0)?
-                //    The indices appear to be identical
-                // TODO: this is all totally wrong for higher order
+                        m_ghostGraphVec[domIdx][neighIdx](bdIdx, stencilIdx) = ghostCount;
 
-                const auto smPt = rowsBd[it];
-                const auto left0  = intGraph(smPt, 1);
-                const auto front0 = intGraph(smPt, 2);
-                const auto right0 = intGraph(smPt, 3);
-                const auto back0  = intGraph(smPt, 4);
-
-                // int stencilIdx = 0; // first order
-                int rowIdx = smPt / nx;
-                int colIdx = smPt % nx;
-                int bcCellIdx;
-
-                if (left0 == -1) {
-                    if (exchDomIdVec[domIdx][0] != -1) {
-                        bcCellIdx = rowIdx;
-                        m_ghostGraphVec[domIdx][0][it] = bcCellIdx * m_dofPerCell;
+                        ghostCount++;
                     }
                 }
-
-                if (front0 == -1) {
-                    if (exchDomIdVec[domIdx][1] != -1) {
-                        bcCellIdx = ny + colIdx;
-                        m_ghostGraphVec[domIdx][1][it] = bcCellIdx * m_dofPerCell;
-                    }
-                }
-
-                if (right0 == -1) {
-                    if (exchDomIdVec[domIdx][2] != -1) {
-                        bcCellIdx = ny + nx + rowIdx;
-                        m_ghostGraphVec[domIdx][2][it] = bcCellIdx * m_dofPerCell;
-                    }
-                }
-
-                if (back0 == -1) {
-                    if (exchDomIdVec[domIdx][3] != -1) {
-                        bcCellIdx = 2 * ny + nx + colIdx;
-                        m_ghostGraphVec[domIdx][3][it] = bcCellIdx * m_dofPerCell;
-                    }
-                }
-                // TODO: extend to higher order, 3D
-
             } // boundary cell loop
-        } // domain loop
-    }
 
-    // assign pointers in BCFunctors
-    void assignBCPointers()
-    {
-
-        const auto & tiling = *m_tiling;
-        const auto & exchDomIdVec = tiling.exchDomIdVec();
-
-        for (int domIdx = 0; domIdx < (int) m_subdomainVec.size(); ++domIdx) {
-            for (int neighIdx = 0; neighIdx < (int) exchDomIdVec[domIdx].size(); ++neighIdx) {
-
+            for (int neighIdx = 0; neighIdx < exchDomIdVec[domIdx].size(); ++neighIdx) {
                 int neighDomIdx = exchDomIdVec[domIdx][neighIdx];
                     if (neighDomIdx == -1) {
                     continue;  // not a Schwarz BC
                 }
 
-                // has left neighbor
+                // left neighbor
                 if (neighIdx == 0) {
                     m_subdomainVec[domIdx]->setBCPointer(pda::impl::GhostRelativeLocation::Left, m_subdomainVec[domIdx]->getStateBCs());
                     m_subdomainVec[domIdx]->setBCPointer(pda::impl::GhostRelativeLocation::Left, &m_ghostGraphVec[domIdx][0]);
                 }
 
-                // has front neighbor
+                // front neighbor
                 if (neighIdx == 1) {
                     m_subdomainVec[domIdx]->setBCPointer(pda::impl::GhostRelativeLocation::Front, m_subdomainVec[domIdx]->getStateBCs());
                     m_subdomainVec[domIdx]->setBCPointer(pda::impl::GhostRelativeLocation::Front, &m_ghostGraphVec[domIdx][1]);
                 }
 
-                // has right neighbor
+                // right neighbor
                 if (neighIdx == 2) {
                     m_subdomainVec[domIdx]->setBCPointer(pda::impl::GhostRelativeLocation::Right, m_subdomainVec[domIdx]->getStateBCs());
                     m_subdomainVec[domIdx]->setBCPointer(pda::impl::GhostRelativeLocation::Right, &m_ghostGraphVec[domIdx][2]);
                 }
 
-                // has back neighbor
+                // back neighbor
                 if (neighIdx == 3) {
                     m_subdomainVec[domIdx]->setBCPointer(pda::impl::GhostRelativeLocation::Back, m_subdomainVec[domIdx]->getStateBCs());
                     m_subdomainVec[domIdx]->setBCPointer(pda::impl::GhostRelativeLocation::Back, &m_ghostGraphVec[domIdx][3]);
                 }
-            }
-        }
+
+                // TODO: expand to 3D
+
+            } // neighbor loop
+        } // domain loop
     }
 
     template <class state_t>
@@ -649,11 +447,10 @@ public:
     int m_dofPerCell;
     std::shared_ptr<const Tiling> m_tiling;
     std::vector<std::shared_ptr<subdomain_base_t>> & m_subdomainVec;
-    int m_bcStencilSize;
     double m_dtMax;
     std::vector<double> m_dt;
-    std::vector<graph_t> m_exchGraphVec;
-    std::vector<std::vector<std::vector<int>>> m_ghostGraphVec; // 1: subdomain index, 2: edge index, 3: cell index
+    std::vector<std::vector<std::vector<std::array<int, 2>>>> m_broadcastGraphVec;
+    std::vector<std::vector<graph_t>> m_ghostGraphVec;
     std::vector<int> m_controlItersVec;
 
 };

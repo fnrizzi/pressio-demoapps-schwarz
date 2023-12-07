@@ -8,7 +8,6 @@
 #include "pressiodemoapps/swe2d.hpp"
 
 
-
 namespace pdaschwarz{
 
 namespace pda = pressiodemoapps;
@@ -35,7 +34,7 @@ struct BCFunctor
     // This is because BCFunctor has no internal left/right/front/back reference, and
     //  only understand position in graph from GLOBAL (subdomain) cell index
     state_t* m_stateBcs = nullptr;
-    std::vector<int>* m_graphBcs = nullptr;
+    graph_t* m_graphBcs = nullptr;
 
     BCFunctor(BCType bcSwitch) : m_bcSwitch(bcSwitch){}
 
@@ -43,7 +42,7 @@ struct BCFunctor
         m_stateBcs = stateBcs;
     }
 
-    void setInternalPtr(std::vector<int>* graphBcs){
+    void setInternalPtr(graph_t* graphBcs){
         m_graphBcs = graphBcs;
     }
 
@@ -76,22 +75,24 @@ private:
     =========================*/
 
     template<class ConnecRowType, class StateT, class T>
-    void HomogNeumannBC(const int /*unused*/, ConnecRowType const & connectivityRow,
-                               const double cellX, const double cellY,
-                               const StateT & currentState, int numDofPerCell,
-                               const double cellWidth, T & ghostValues) const
+    void HomogNeumannBC(
+        const int /*unused*/, ConnecRowType const & connectivityRow,
+        const double cellX, const double cellY,
+        const StateT & currentState, int numDofPerCell,
+        const double cellWidth, T & ghostValues) const
     {
         const int cellGID = connectivityRow[0];
-        const auto uIndex  = cellGID*numDofPerCell;
+        const auto uIndex  = cellGID * numDofPerCell;
         for (int i = 0; i < numDofPerCell; ++i) {
             ghostValues[i] = currentState(uIndex+i);
         }
     }
 
     template<class ConnecRowType, class FactorsType>
-    void HomogNeumannBC(ConnecRowType const & connectivityRow,
-                               const double cellX, const double cellY,
-                               int numDofPerCell, FactorsType & factorsForBCJac) const
+    void HomogNeumannBC(
+        ConnecRowType const & connectivityRow,
+        const double cellX, const double cellY,
+        int numDofPerCell, FactorsType & factorsForBCJac) const
     {
         for (int i = 0; i < numDofPerCell; ++i) {
             factorsForBCJac[i] = 1.0;
@@ -99,13 +100,14 @@ private:
     }
 
     template<class ConnecRowType, class StateT, class T>
-    void SlipWallVertBC(const int /*unused*/, ConnecRowType const & connectivityRow,
-                               const double cellX, const double cellY,
-                               const StateT & currentState, int numDofPerCell,
-                               const double cellWidth, T & ghostValues) const
+    void SlipWallVertBC(
+        const int /*unused*/, ConnecRowType const & connectivityRow,
+        const double cellX, const double cellY,
+        const StateT & currentState, int numDofPerCell,
+        const double cellWidth, T & ghostValues) const
     {
         const int cellGID = connectivityRow[0];
-        const auto uIndex  = cellGID*numDofPerCell;
+        const auto uIndex  = cellGID * numDofPerCell;
         for (int i = 0; i < numDofPerCell; ++i) {
             ghostValues[i] = currentState(uIndex+i);
         }
@@ -113,9 +115,10 @@ private:
     }
 
     template<class ConnecRowType, class FactorsType>
-    void SlipWallVertBC(ConnecRowType const & connectivityRow,
-                               const double cellX, const double cellY,
-                               int numDofPerCell, FactorsType & factorsForBCJac) const
+    void SlipWallVertBC(
+        ConnecRowType const & connectivityRow,
+        const double cellX, const double cellY,
+        int numDofPerCell, FactorsType & factorsForBCJac) const
     {
         for (int i = 0; i < numDofPerCell; ++i) {
             factorsForBCJac[i] = 1.0;
@@ -124,13 +127,14 @@ private:
     }
 
     template<class ConnecRowType, class StateT, class T>
-    void SlipWallHorizBC(const int /*unused*/, ConnecRowType const & connectivityRow,
-                               const double cellX, const double cellY,
-                               const StateT & currentState, int numDofPerCell,
-                               const double cellWidth, T & ghostValues) const
+    void SlipWallHorizBC(
+        const int /*unused*/, ConnecRowType const & connectivityRow,
+        const double cellX, const double cellY,
+        const StateT & currentState, int numDofPerCell,
+        const double cellWidth, T & ghostValues) const
     {
         const int cellGID = connectivityRow[0];
-        const auto uIndex  = cellGID*numDofPerCell;
+        const auto uIndex  = cellGID * numDofPerCell;
         for (int i = 0; i < numDofPerCell; ++i) {
             ghostValues[i] = currentState(uIndex+i);
         }
@@ -138,9 +142,10 @@ private:
     }
 
     template<class ConnecRowType, class FactorsType>
-    void SlipWallHorizBC(ConnecRowType const & connectivityRow,
-                               const double cellX, const double cellY,
-                               int numDofPerCell, FactorsType & factorsForBCJac) const
+    void SlipWallHorizBC(
+        ConnecRowType const & connectivityRow,
+        const double cellX, const double cellY,
+        int numDofPerCell, FactorsType & factorsForBCJac) const
     {
         for (int i = 0; i < numDofPerCell; ++i) {
             factorsForBCJac[i] = 1.0;
@@ -153,28 +158,37 @@ private:
     =========================*/
 
     template<class ConnecRowType, class StateT, class T>
-    void SchwarzDirichletBC(const int gRow, ConnecRowType const & connectivityRow,
-                            const double cellX, const double cellY,
-                            const StateT & currentState, int numDofPerCell,
-                            const double cellWidth, T & ghostValues) const
+    void SchwarzDirichletBC(
+        const int gRow, ConnecRowType const & connectivityRow,
+        const double cellX, const double cellY,
+        const StateT & currentState, int numDofPerCell,
+        const double cellWidth, T & ghostValues) const
     {
-        // TODO: any way to only check this once? Seems wasteful.
         if ((m_stateBcs == nullptr) || (m_graphBcs == nullptr)) {
-	  std::runtime_error("m_stateBcs or m_graphBcs not set");
+            std::runtime_error("m_stateBcs or m_graphBcs not set");
         }
 
-        const auto bcIndex = (*m_graphBcs)[gRow];
-        // assumes that T can be indexed by [], which is true for demoapps (Eigen::Matrix.row())
-        for (int i = 0; i < numDofPerCell; ++i) {
-            ghostValues[i] = (*m_stateBcs)(bcIndex+i);
+        // gRow: the index of current cell within graphRowsOfCellsNearBd()
+        // connectivityRow: the stencil mesh graph associated with the current cell
+        // ghostValues: the row of m_ghost(Left/Right/etc) associated with this cell
+
+        int stencilSize1D = ghostValues.cols() / numDofPerCell;
+        for (int stencilIdx = 0; stencilIdx < stencilSize1D; ++stencilIdx) {
+            auto bcIdx = (*m_graphBcs)(gRow, stencilIdx);
+            if (bcIdx != -1) {
+                for (int dofIdx = 0; dofIdx < numDofPerCell; ++dofIdx) {
+                    ghostValues[stencilIdx * numDofPerCell + dofIdx] = (*m_stateBcs)(bcIdx * numDofPerCell + dofIdx);
+                }
+            }
         }
 
     }
 
     template<class ConnecRowType, class FactorsType>
-    void SchwarzDirichletBC(ConnecRowType const & connectivityRow,
-            const double cellX, const double cellY,
-            int numDofPerCell, FactorsType & factorsForBCJac) const
+    void SchwarzDirichletBC(
+        ConnecRowType const & connectivityRow,
+        const double cellX, const double cellY,
+        int numDofPerCell, FactorsType & factorsForBCJac) const
     {
         // assumes that FactorsType can be indexed by [], which is true for demoapps (std::array)
         for (int i = 0; i < numDofPerCell; ++i) {

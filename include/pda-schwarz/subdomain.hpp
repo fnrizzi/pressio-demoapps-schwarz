@@ -14,8 +14,6 @@
 #include "./rom_utils.hpp"
 
 
-
-
 namespace pdaschwarz {
 
 namespace pda = pressiodemoapps;
@@ -29,6 +27,7 @@ class SubdomainBase{
 public:
     using state_t = state_type;
     using mesh_t = mesh_type;
+    using graph_t = typename mesh_t::graph_t;
 
     virtual int nx() const = 0;
     virtual int ny() const = 0;
@@ -40,11 +39,12 @@ public:
     virtual void resetStateFromHistory() = 0;
     virtual void updateFullState() = 0;
     virtual const mesh_t & getMesh() const = 0;
+    virtual const graph_t & getNeighborGraph() const = 0;
     virtual int getDofPerCell() const = 0;
     virtual state_t * getState() = 0;
     virtual state_t * getStateBCs() = 0;
     virtual void setBCPointer(pda::impl::GhostRelativeLocation, state_t * ) = 0;
-    virtual void setBCPointer(pda::impl::GhostRelativeLocation, std::vector<int> *) = 0;
+    virtual void setBCPointer(pda::impl::GhostRelativeLocation, graph_t *) = 0;
     virtual state_t & getLastStateInHistory() = 0;
 };
 
@@ -54,6 +54,7 @@ class SubdomainFOM: public SubdomainBase<mesh_t, typename app_type::state_type>
 {
 public:
     using app_t   = app_type;
+    using graph_t = typename mesh_t::graph_t;
     using state_t = typename app_t::state_type;
     using jacob_t = typename app_t::jacobian_type;
     using base_t = SubdomainBase<mesh_t, state_t>;
@@ -71,8 +72,10 @@ public:
 
 public:
     template<class prob_t>
-    SubdomainFOM(const int domainIndex,
+    SubdomainFOM(
+        const int domainIndex,
         const mesh_t & mesh,
+        const graph_t & neighborGraph,
         const std::array<int, 3> & meshFullDim,
         BCType bcLeft, BCType bcFront,
         BCType bcRight, BCType bcBack,
@@ -84,23 +87,21 @@ public:
     : m_domIdx(domainIndex)
     , m_dims(meshFullDim)
     , m_mesh(&mesh)
+    , m_neighborGraph(&neighborGraph)
     , m_app(std::make_shared<app_t>(pressiodemoapps::create_problem_eigen(
             mesh, probId, order,
             BCFunctor<mesh_t>(bcLeft),  BCFunctor<mesh_t>(bcFront),
             BCFunctor<mesh_t>(bcRight), BCFunctor<mesh_t>(bcBack),
             icflag, userParams)))
     , m_state(m_app->initialCondition())
-    // : SubdomainBase<mesh_t>::SubdomainBase(domainIndex, mesh, meshFullDim,
-    // 					   bcLeft, bcFront, bcRight, bcBack,
-    // 					   probId, odeScheme, order, icflag, userParams)
     , m_stepper(pressio::ode::create_implicit_stepper(odeScheme, *(this->m_app)))
     , m_linSolverObj(std::make_shared<linsolver_t>())
     , m_nonlinSolver(pressio::create_newton_solver(m_stepper, *m_linSolverObj))
     {
-        if (order != pressiodemoapps::InviscidFluxReconstruction::FirstOrder) {
-            std::runtime_error("Subdomain: inviscid reconstruction must be first oder");
-        }
-        init_bc_state(order);
+        // if (order != pressiodemoapps::InviscidFluxReconstruction::FirstOrder) {
+        //     std::runtime_error("Subdomain: inviscid reconstruction must be first oder");
+        // }
+        init_bc_state();
 
         m_nonlinSolver.setStopTolerance(1e-5);
     }
@@ -110,7 +111,7 @@ public:
     void setBCPointer(pda::impl::GhostRelativeLocation grl, state_t * v) final {
         m_app->setBCPointer(grl, v);
     }
-    void setBCPointer(pda::impl::GhostRelativeLocation grl, std::vector<int> * v) final {
+    void setBCPointer(pda::impl::GhostRelativeLocation grl, graph_t * v) final {
       m_app->setBCPointer(grl, v);
     }
 
@@ -118,17 +119,27 @@ public:
     state_t * getState() final { return &m_state; }
     int getDofPerCell() const final { return m_app->numDofPerCell(); }
     const mesh_t & getMesh() const final { return *m_mesh; }
+    const graph_t & getNeighborGraph() const final { return *m_neighborGraph; }
 
     int nx() const final{ return m_dims[0]; }
     int ny() const final{ return m_dims[1]; }
     int nz() const final{ return m_dims[2]; }
 
-    void init_bc_state(pressiodemoapps::InviscidFluxReconstruction order)
+    void init_bc_state()
     {
-        // TODO: can presumably remove this when routines generalized to unstructured format
-        const int bcStencilSize = (pressiodemoapps::reconstructionTypeToStencilSize(order) - 1) / 2;
-        const int bcStencilDof = bcStencilSize * m_app->numDofPerCell();
-        const int numDofStencilBc = 2 * bcStencilDof * (m_dims[0] + m_dims[1] + m_dims[2]);
+        // count number of neighbor ghost cells in neighborGraph
+        int numGhostCells = 0;
+        const auto & rowsBd = m_mesh->graphRowsOfCellsNearBd();
+        for (int bdIdx = 0; bdIdx < rowsBd.size(); ++bdIdx) {
+            auto rowIdx = rowsBd[bdIdx];
+            // start at 1 to ignore own ID
+            for (int colIdx = 1; colIdx < m_neighborGraph->cols(); ++colIdx) {
+                if ((*m_neighborGraph)(rowIdx, colIdx) != -1) {
+                    numGhostCells++;
+                }
+            }
+        }
+        const int numDofStencilBc = m_app->numDofPerCell() * numGhostCells;
         pressiodemoapps::resize(m_stateBCs, numDofStencilBc);
         m_stateBCs.fill(0.0);
     }
@@ -163,13 +174,12 @@ public:
     int m_domIdx;
     std::array<int,3> m_dims = {};
     mesh_t const * m_mesh;
+    graph_t const * m_neighborGraph;
     std::shared_ptr<app_t> m_app;
     state_t m_state;
     state_t m_stateBCs;
     std::vector<state_t> m_stateHistVec;
 
-    // std::shared_ptr<app_t> m_app;
-    // state_t m_state;
     stepper_t m_stepper;
     std::shared_ptr<linsolver_t> m_linSolverObj;
     nonlinsolver_t m_nonlinSolver;
@@ -182,6 +192,7 @@ template<class mesh_t, class app_type>
 class SubdomainROM: public SubdomainBase<mesh_t, typename app_type::state_type>
 {
     using app_t    = app_type;
+    using graph_t = typename mesh_t::graph_t;
     using scalar_t = typename app_t::scalar_type;
     using state_t  = typename app_t::state_type;
     using base_t = SubdomainBase<mesh_t, state_t>;
@@ -193,8 +204,10 @@ class SubdomainROM: public SubdomainBase<mesh_t, typename app_type::state_type>
 
 public:
     template<class prob_t>
-    SubdomainROM(const int domainIndex,
+    SubdomainROM(
+        const int domainIndex,
         const mesh_t & mesh,
+        const graph_t & neighborGraph,
         const std::array<int, 3> & meshFullDim,
         BCType bcLeft, BCType bcFront,
         BCType bcRight, BCType bcBack,
@@ -209,6 +222,7 @@ public:
     : m_domIdx(domainIndex)
     , m_dims(meshFullDim)
     , m_mesh(&mesh)
+    , m_neighborGraph(&neighborGraph)
     , m_app(std::make_shared<app_t>(pressiodemoapps::create_problem_eigen(
             mesh, probId, order,
             BCFunctor<mesh_t>(bcLeft),  BCFunctor<mesh_t>(bcFront),
@@ -221,10 +235,10 @@ public:
     , m_trialSpace(prom::create_trial_column_subspace<state_t>(std::move(m_basis), std::move(m_trans), true))
     , m_stateReduced(m_trialSpace.createReducedState())
     {
-        if (order != pressiodemoapps::InviscidFluxReconstruction::FirstOrder){
-            std::runtime_error("Subdomain: inviscid reconstruction must be first oder");
-        }
-        init_bc_state(order);
+        // if (order != pressiodemoapps::InviscidFluxReconstruction::FirstOrder){
+        //     std::runtime_error("Subdomain: inviscid reconstruction must be first oder");
+        // }
+        init_bc_state();
 
         // project initial conditions
         auto u = pressio::ops::clone(this->m_state);
@@ -238,7 +252,7 @@ public:
     void setBCPointer(pda::impl::GhostRelativeLocation grl, state_t * v) final{
         m_app->setBCPointer(grl, v);
     }
-    void setBCPointer(pda::impl::GhostRelativeLocation grl, std::vector<int> * v) final{
+    void setBCPointer(pda::impl::GhostRelativeLocation grl, graph_t * v) final{
         m_app->setBCPointer(grl, v);
     }
 
@@ -246,17 +260,27 @@ public:
     state_t * getState() final { return &m_state; }
     int getDofPerCell() const final { return m_app->numDofPerCell(); }
     const mesh_t & getMesh() const final { return *m_mesh; }
+    const graph_t & getNeighborGraph() const final { return *m_neighborGraph; }
 
     int nx() const final{ return m_dims[0]; }
     int ny() const final{ return m_dims[1]; }
     int nz() const final{ return m_dims[2]; }
 
-    void init_bc_state(pressiodemoapps::InviscidFluxReconstruction order)
+    void init_bc_state()
     {
-        // TODO: can presumably remove this when routines generalized to unstructured format
-        const int bcStencilSize = (pressiodemoapps::reconstructionTypeToStencilSize(order) - 1) / 2;
-        const int bcStencilDof = bcStencilSize * m_app->numDofPerCell();
-        const int numDofStencilBc = 2 * bcStencilDof * (m_dims[0] + m_dims[1] + m_dims[2]);
+        // count number of neighbor ghost cells in neighborGraph
+        int numGhostCells = 0;
+        const auto & rowsBd = m_mesh->graphRowsOfCellsNearBd();
+        for (int bdIdx = 0; bdIdx < rowsBd.size(); ++bdIdx) {
+            auto rowIdx = rowsBd[bdIdx];
+            // start at 1 to ignore own ID
+            for (int colIdx = 1; colIdx < m_neighborGraph->cols(); ++colIdx) {
+                if ((*m_neighborGraph)(rowIdx, colIdx) != -1) {
+                    numGhostCells++;
+                }
+            }
+        }
+        const int numDofStencilBc = m_app->numDofPerCell() * numGhostCells;
         pressiodemoapps::resize(m_stateBCs, numDofStencilBc);
         m_stateBCs.fill(0.0);
     }
@@ -286,6 +310,7 @@ protected:
     int m_domIdx;
     std::array<int,3> m_dims = {};
     mesh_t const * m_mesh;
+    graph_t const * m_neighborGraph;
     std::shared_ptr<app_t> m_app;
     state_t m_state;
     state_t m_stateBCs;
@@ -306,6 +331,7 @@ class SubdomainLSPG: public SubdomainROM<mesh_t, app_type>
 
 private:
     using app_t    = app_type;
+    using graph_t  = typename mesh_t::graph_t;
     using scalar_t = typename app_t::scalar_type;
     using state_t  = typename app_t::state_type;
 
@@ -325,8 +351,10 @@ private:
 public:
 
     template<class prob_t>
-    SubdomainLSPG(const int domainIndex,
+    SubdomainLSPG(
+        const int domainIndex,
         const mesh_t & mesh,
+        const graph_t & neighborGraph,
         const std::array<int, 3> & meshFullDim,
         BCType bcLeft, BCType bcFront,
         BCType bcRight, BCType bcBack,
@@ -338,7 +366,8 @@ public:
         const std::string & transRoot,
         const std::string & basisRoot,
         const int nmodes)
-    : SubdomainROM<mesh_t, app_type>::SubdomainROM(domainIndex, mesh, meshFullDim,
+    : SubdomainROM<mesh_t, app_type>::SubdomainROM(
+        domainIndex, mesh, neighborGraph, meshFullDim,
         bcLeft, bcFront, bcRight, bcBack,
         probId, odeScheme, order, icflag, userParams,
         transRoot, basisRoot, nmodes)
@@ -367,13 +396,50 @@ private:
 auto create_meshes(std::string const & meshRoot, const int n)
 {
     using mesh_t = pda::cellcentered_uniform_mesh_eigen_type;
+    using graph_t = typename mesh_t::graph_t;
+
     std::vector<mesh_t> meshes;
     std::vector<std::string> meshPaths;
-    for (int i = 0; i < n; ++i) {
-        meshPaths.emplace_back(meshRoot + "/domain_" + std::to_string(i));
+    std::vector<graph_t> neighborGraphs(n);
+
+    for (int domIdx = 0; domIdx < n; ++domIdx) {
+        // read mesh
+        meshPaths.emplace_back(meshRoot + "/domain_" + std::to_string(domIdx));
         meshes.emplace_back( pda::load_cellcentered_uniform_mesh_eigen(meshPaths.back()) );
+
+        // read neighbor connectivity
+        const auto numNeighbors = (meshes.back().stencilSize() - 1) * meshes.back().dimensionality();
+        const auto graphNumCols = numNeighbors + 1;
+        pda::resize(neighborGraphs[domIdx], meshes.back().sampleMeshSize(), graphNumCols);
+
+        // this is ripped directly from mesh_read_connectivity, since it doesn't generalize the file name
+        const auto inFile = meshPaths.back() + "/connectivity_neighbor.dat";
+        std::ifstream foundFile(inFile);
+        if (!foundFile) {
+            std::cout << "file not found " << inFile << std::endl;
+            exit(EXIT_FAILURE);
+        }
+
+        std::ifstream source(inFile, std::ios_base::in);
+        std::string line;
+        std::size_t count = 0;
+        while (std::getline(source, line))
+        {
+            std::istringstream ss(line);
+            std::string colVal;
+            ss >> colVal;
+            neighborGraphs[domIdx](count, 0) = std::stoi(colVal);
+
+            for (auto graphIdx = 1; graphIdx <= graphNumCols - 1; ++graphIdx) {
+                ss >> colVal;
+                neighborGraphs[domIdx](count, graphIdx) = std::stoi(colVal);
+            }
+            count++;
+        }
+        source.close();
     }
-    return std::pair(meshPaths, meshes);
+
+    return std::tuple(meshPaths, meshes, neighborGraphs);
 }
 
 //
@@ -420,21 +486,23 @@ std::array<int,3> read_mesh_dims(const std::string & meshPath, int domIdx)
 //
 // all domains are assumed to be FOM domains
 //
-template<class app_t, class mesh_t, class prob_t>
-auto create_subdomains(const std::vector<std::string> & meshPaths,
-                       const std::vector<mesh_t> & meshes,
-                       const Tiling & tiling,
-                       prob_t probId,
-                       pode::StepScheme odeScheme,
-                       pressiodemoapps::InviscidFluxReconstruction order,
-                       int icFlag = 0,
-                       const std::unordered_map<std::string, typename app_t::scalar_type> & userParams = {})
+template<class app_t, class mesh_t, class graph_t, class prob_t>
+auto create_subdomains(
+    const std::vector<std::string> & meshPaths,
+    const std::vector<mesh_t> & meshes,
+    const std::vector<graph_t> & neighborGraphs,
+    const Tiling & tiling,
+    prob_t probId,
+    pode::StepScheme odeScheme,
+    pressiodemoapps::InviscidFluxReconstruction order,
+    int icFlag = 0,
+    const std::unordered_map<std::string, typename app_t::scalar_type> & userParams = {})
 {
     auto ndomains = tiling.count();
     std::vector<std::string> domFlagVec(ndomains, "FOM");
     std::vector<int> nmodesVec(ndomains, -1);
 
-    return create_subdomains<app_t>(meshPaths, meshes, tiling,
+    return create_subdomains<app_t>(meshPaths, meshes, neighborGraphs, tiling,
         probId, odeScheme, order,
         domFlagVec, "", "", nmodesVec, icFlag, userParams);
 
@@ -443,19 +511,21 @@ auto create_subdomains(const std::vector<std::string> & meshPaths,
 //
 // Subdomain type specified by domFlagVec
 //
-template<class app_t, class mesh_t, class prob_t>
-auto create_subdomains(const std::vector<std::string> & meshPaths,
-                       const std::vector<mesh_t> & meshes,
-                       const Tiling & tiling,
-                       prob_t probId,
-                       pode::StepScheme odeScheme,
-                       pressiodemoapps::InviscidFluxReconstruction order,
-                       const std::vector<std::string> & domFlagVec,
-                       const std::string & transRoot,
-                       const std::string & basisRoot,
-                       const std::vector<int> & nmodesVec,
-                       int icFlag = 0,
-                       const std::unordered_map<std::string, typename app_t::scalar_type> & userParams = {})
+template<class app_t, class mesh_t, class graph_t, class prob_t>
+auto create_subdomains(
+    const std::vector<std::string> & meshPaths,
+    const std::vector<mesh_t> & meshes,
+    const std::vector<graph_t> & neighborGraphs,
+    const Tiling & tiling,
+    prob_t probId,
+    pode::StepScheme odeScheme,
+    pressiodemoapps::InviscidFluxReconstruction order,
+    const std::vector<std::string> & domFlagVec,
+    const std::string & transRoot,
+    const std::string & basisRoot,
+    const std::vector<int> & nmodesVec,
+    int icFlag = 0,
+    const std::unordered_map<std::string, typename app_t::scalar_type> & userParams = {})
 {
 
     // add checks that vectors are all same size?
@@ -504,15 +574,18 @@ auto create_subdomains(const std::vector<std::string> & meshPaths,
         }
 
         // mesh dimensions (non-hyper-reduced only)
+        // TODO: remove meshPaths after neighbor graphs implemented
         const auto meshFullDims = read_mesh_dims(meshPaths[domIdx], domIdx);
 
         if (domFlagVec[domIdx] == "FOM") {
-            result.emplace_back(std::make_shared<SubdomainFOM<mesh_t, app_t>>(domIdx, meshes[domIdx], meshFullDims,
+            result.emplace_back(std::make_shared<SubdomainFOM<mesh_t, app_t>>(
+                domIdx, meshes[domIdx], neighborGraphs[domIdx], meshFullDims,
                 bcLeft, bcFront, bcRight, bcBack,
                 probId, odeScheme, order, icFlag, userParams));
         }
         else if (domFlagVec[domIdx] == "LSPG") {
-            result.emplace_back(std::make_shared<SubdomainLSPG<mesh_t, app_t>>(domIdx, meshes[domIdx], meshFullDims,
+            result.emplace_back(std::make_shared<SubdomainLSPG<mesh_t, app_t>>(
+                domIdx, meshes[domIdx], neighborGraphs[domIdx], meshFullDims,
                 bcLeft, bcFront, bcRight, bcBack,
                 probId, odeScheme, order, icFlag, userParams,
                 transRoot, basisRoot, nmodesVec[domIdx]));

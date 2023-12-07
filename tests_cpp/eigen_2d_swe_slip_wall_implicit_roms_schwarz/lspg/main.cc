@@ -39,9 +39,9 @@ int main()
 
     // tiling, meshes, and decomposition
     auto tiling = std::make_shared<pdas::Tiling>(meshRoot);
-    auto [meshPaths, meshObjs] = pdas::create_meshes(meshRoot, tiling->count());
+    auto [meshPaths, meshObjs, neighborGraphs] = pdas::create_meshes(meshRoot, tiling->count());
     auto subdomains = pdas::create_subdomains<app_t>(
-        meshPaths, meshObjs, *tiling, probId, scheme, order,
+        meshPaths, meshObjs, neighborGraphs, *tiling, probId, scheme, order,
         domFlagVec, transRoot, basisRoot, nmodesVec, icFlag);
     pdas::SchwarzDecomp decomp(subdomains, tiling, dt);
 

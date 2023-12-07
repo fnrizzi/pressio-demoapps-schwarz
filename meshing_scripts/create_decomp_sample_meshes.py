@@ -41,7 +41,6 @@ def main(decompdir, sampdir, gidfile):
             dims_sub[i][j][k] += (0, 0)
         elif ndim == 2:
             dims_sub[i][j][k] += (0,)
-        # coords_sub[i][j][k] = np.reshape(coords_sub[i][j][k], (-1, ndim), order="F")
         connect_sub[i][j][k] = np.loadtxt(os.path.join(meshdir_sub, "connectivity.dat"), dtype=np.int32)[:, 1:]
 
         # get dx, dy, dz
@@ -114,14 +113,16 @@ def main(decompdir, sampdir, gidfile):
                         if (axis_idx == 0) and (i != 0):
                             i_neigh -= 1
                             dims_neigh = dims_sub[i-1][j][k]
-                            neigh_gid = (dims_neigh[0] * (y_idx + 1)) - overlap - stencil_idx - 1
+                            dist = x_idx
+                            neigh_gid = (dims_neigh[0] * (y_idx + 1)) - overlap - stencil_idx + dist - 1
 
                         # right boundary (1D)
                         if ndim == 1:
                             if (axis_idx == 1) and (i != ndom_list[0] - 1):
                                 i_neigh += 1
                                 dims_neigh = dims_sub[i+1][j][k]
-                                neigh_gid =  overlap + stencil_idx
+                                dist = dims_neigh - x_idx - 1
+                                neigh_gid =  overlap + stencil_idx - dist
 
                         if ndim > 1:
 
@@ -129,27 +130,29 @@ def main(decompdir, sampdir, gidfile):
                             if (axis_idx == 1) and (j != ndom_list[1] - 1):
                                 j_neigh += 1
                                 dims_neigh = dims_sub[i][j+1][k]
-                                neigh_gid = (overlap + stencil_idx) * dims_neigh[0] + x_idx
+                                dist = dims_neigh[1] - y_idx - 1
+                                neigh_gid = (overlap + stencil_idx - dist) * dims_neigh[0] + x_idx
 
                             # right boundary (2D)
                             if (axis_idx == 2) and (i != ndom_list[0] - 1):
                                 i_neigh += 1
                                 dims_neigh = dims_sub[i+1][j][k]
-                                neigh_gid = (dims_neigh[0] * y_idx) + overlap + stencil_idx
+                                dist = dims_neigh[0] - x_idx - 1
+                                neigh_gid = (dims_neigh[0] * y_idx) + overlap + stencil_idx - dist
 
                             # back boundary
                             if (axis_idx == 3) and (j != 0):
                                 j_neigh -= 1
                                 dims_neigh = dims_sub[i][j-1][k]
-                                neigh_gid = (dims_neigh[1] - 1 - overlap - stencil_idx) * dims_neigh[0] + x_idx
+                                dist = y_idx
+                                neigh_gid = (dims_neigh[1] - 1 - overlap - stencil_idx + dist) * dims_neigh[0] + x_idx
 
                         if ndim == 3:
                             raise ValueError("3D not completed")
-                            # top boundary
-                            if (axis_idx == 4) and (k != ndom_list[2] - 2):
-                                pass
-
                             # bottom boundary
+                            if (axis_idx == 4) and (k != 0):
+                                pass
+                            # top boundary
                             if (axis_idx == 5) and (k != ndom_list[2] - 2):
                                 pass
 
@@ -285,12 +288,12 @@ def main(decompdir, sampdir, gidfile):
                                 if remain == 3:
                                     j_neigh -= 1
                             if ndim == 3:
-                                # top
-                                if remain == 4:
-                                    k_neigh += 1
                                 # bottom
-                                if remain == 5:
+                                if remain == 4:
                                     k_neigh -= 1
+                                # top
+                                if remain == 5:
+                                    k_neigh += 1
                             global_to_stencil_map_neigh = global_to_stencil_map_sub[i_neigh][j_neigh][k_neigh]
                             neigh_sid = global_to_stencil_map_neigh[neigh_gid]
 
