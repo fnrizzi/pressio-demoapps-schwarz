@@ -88,7 +88,7 @@ public:
             BCFunctor<mesh_t>(bcRight), BCFunctor<mesh_t>(bcBack),
             icflag, userParams)))
     , m_state(m_app->initialCondition())
-    , m_stepper(pressio::ode::create_implicit_stepper(odeScheme, *(this->m_app)))
+    , m_stepper(pressio::ode::create_implicit_stepper(odeScheme, *(m_app)))
     , m_linSolverObj(std::make_shared<linsolver_t>())
     , m_nonlinSolver(pressio::create_newton_solver(m_stepper, *m_linSolverObj))
     {
@@ -135,7 +135,7 @@ public:
     void allocateStorageForHistory(const int count) final {
         for (int histIdx = 0; histIdx < count + 1; ++histIdx) {
             // createState creates a new state with all elements equal to zero
-            this->m_stateHistVec.emplace_back(this->m_app->createState());
+            m_stateHistVec.emplace_back(m_app->createState());
         }
     }
 
@@ -143,15 +143,15 @@ public:
         pode::StepCount step,
         pode::StepSize<double> dt) final
     {
-        m_stepper(this->m_state, startTime, step, dt, m_nonlinSolver);
+        m_stepper(m_state, startTime, step, dt, m_nonlinSolver);
     }
 
     void storeStateHistory(const int step) final {
-        this->m_stateHistVec[step] = this->m_state;
+        m_stateHistVec[step] = m_state;
     }
 
     void resetStateFromHistory() final {
-        this->m_state = this->m_stateHistVec[0];
+        m_state = m_stateHistVec[0];
     }
 
     void updateFullState() final {
@@ -222,10 +222,10 @@ public:
         init_bc_state();
 
         // project initial conditions
-        auto u = pressio::ops::clone(this->m_state);
-        pressio::ops::update(u, 0., this->m_state, 1, m_trialSpace.translationVector(), -1);
+        auto u = pressio::ops::clone(m_state);
+        pressio::ops::update(u, 0., m_state, 1, m_trialSpace.translationVector(), -1);
         pressio::ops::product(::pressio::transpose(), 1., m_trialSpace.basis(), u, 0., m_stateReduced);
-        m_trialSpace.mapFromReducedState(m_stateReduced, this->m_state);
+        m_trialSpace.mapFromReducedState(m_stateReduced, m_state);
 
     }
 
@@ -265,23 +265,23 @@ public:
 
     void allocateStorageForHistory(const int count){
         for (int histIdx = 0; histIdx < count + 1; ++histIdx) {
-            this->m_stateHistVec.emplace_back(this->m_app->createState());
+            m_stateHistVec.emplace_back(m_app->createState());
             m_stateReducedHistVec.emplace_back(m_trialSpace.createReducedState());
         }
     }
 
     void storeStateHistory(const int step) final {
-        this->m_stateHistVec[step] = this->m_state;
-        this->m_stateReducedHistVec[step] = this->m_stateReduced;
+        m_stateHistVec[step] = m_state;
+        m_stateReducedHistVec[step] = m_stateReduced;
     }
 
     void resetStateFromHistory() final {
-        this->m_state = this->m_stateHistVec[0];
-        this->m_stateReduced = this->m_stateReducedHistVec[0];
+        m_state = m_stateHistVec[0];
+        m_stateReduced = m_stateReducedHistVec[0];
     }
 
     void updateFullState() final {
-        m_trialSpace.mapFromReducedState(m_stateReduced, this->m_state);
+        m_trialSpace.mapFromReducedState(m_stateReduced, m_state);
     }
 
 protected:
@@ -443,10 +443,10 @@ public:
         init_bc_state();
 
         // project initial conditions
-        auto u = pressio::ops::clone(this->m_stateFull);
-        pressio::ops::update(u, 0., this->m_stateFull, 1, m_trialSpaceFull.translationVector(), -1);
+        auto u = pressio::ops::clone(m_stateFull);
+        pressio::ops::update(u, 0., m_stateFull, 1, m_trialSpaceFull.translationVector(), -1);
         pressio::ops::product(::pressio::transpose(), 1., m_trialSpaceFull.basis(), u, 0., m_stateReduced);
-        m_trialSpaceFull.mapFromReducedState(m_stateReduced, this->m_stateFull);
+        m_trialSpaceFull.mapFromReducedState(m_stateReduced, m_stateFull);
 
     }
 
@@ -490,23 +490,23 @@ public:
 
     void allocateStorageForHistory(const int count){
         for (int histIdx = 0; histIdx < count + 1; ++histIdx) {
-            this->m_stateHistVec.emplace_back(m_appHyper->createState());
+            m_stateHistVec.emplace_back(m_appHyper->createState());
             m_stateReducedHistVec.emplace_back(m_trialSpaceHyper.createReducedState());
         }
     }
 
     void storeStateHistory(const int step) final {
-        this->m_stateHistVec[step] = this->m_stateStencil;
-        this->m_stateReducedHistVec[step] = this->m_stateReduced;
+        m_stateHistVec[step] = m_stateStencil;
+        m_stateReducedHistVec[step] = m_stateReduced;
     }
 
     void resetStateFromHistory() final {
-        this->m_stateStencil = this->m_stateHistVec[0];
-        this->m_stateReduced = this->m_stateReducedHistVec[0];
+        m_stateStencil = m_stateHistVec[0];
+        m_stateReduced = m_stateReducedHistVec[0];
     }
 
     void updateFullState() final {
-        m_trialSpaceHyper.mapFromReducedState(m_stateReduced, this->m_stateStencil);
+        m_trialSpaceHyper.mapFromReducedState(m_stateReduced, m_stateStencil);
     }
 
 public:
