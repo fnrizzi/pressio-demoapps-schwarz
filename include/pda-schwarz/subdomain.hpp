@@ -38,6 +38,7 @@ public:
     virtual const graph_t & getNeighborGraph() const = 0;
     virtual int getDofPerCell() const = 0;
     virtual state_t * getState() = 0;
+    virtual state_t * getStateFull() = 0;
     virtual state_t * getStateBCs() = 0;
     virtual void setBCPointer(pda::impl::GhostRelativeLocation, state_t * ) = 0;
     virtual void setBCPointer(pda::impl::GhostRelativeLocation, graph_t *) = 0;
@@ -53,7 +54,6 @@ public:
     using graph_t = typename mesh_t::graph_t;
     using state_t = typename app_t::state_type;
     using jacob_t = typename app_t::jacobian_type;
-    using base_t = SubdomainBase<mesh_t, state_t>;
 
     using stepper_t  =
         decltype(pressio::ode::create_implicit_stepper(pressio::ode::StepScheme(),
@@ -76,13 +76,13 @@ public:
         BCType bcRight, BCType bcBack,
         prob_t probId,
         pressio::ode::StepScheme odeScheme,
-        pressiodemoapps::InviscidFluxReconstruction order,
+        pda::InviscidFluxReconstruction order,
         const int icflag,
         const std::unordered_map<std::string, typename mesh_t::scalar_type> & userParams)
     : m_domIdx(domainIndex)
     , m_mesh(&mesh)
     , m_neighborGraph(&neighborGraph)
-    , m_app(std::make_shared<app_t>(pressiodemoapps::create_problem_eigen(
+    , m_app(std::make_shared<app_t>(pda::create_problem_eigen(
             mesh, probId, order,
             BCFunctor<mesh_t>(bcLeft),  BCFunctor<mesh_t>(bcFront),
             BCFunctor<mesh_t>(bcRight), BCFunctor<mesh_t>(bcBack),
@@ -108,6 +108,7 @@ public:
 
     state_t * getStateBCs() final { return &m_stateBCs; }
     state_t * getState() final { return &m_state; }
+    state_t * getStateFull() final { return &m_state; }
     int getDofPerCell() const final { return m_app->numDofPerCell(); }
     const mesh_t & getMesh() const final { return *m_mesh; }
     const graph_t & getNeighborGraph() const final { return *m_neighborGraph; }
@@ -127,7 +128,7 @@ public:
             }
         }
         const int numDofStencilBc = m_app->numDofPerCell() * numGhostCells;
-        pressiodemoapps::resize(m_stateBCs, numDofStencilBc);
+        pda::resize(m_stateBCs, numDofStencilBc);
         m_stateBCs.fill(0.0);
     }
 
@@ -181,7 +182,6 @@ class SubdomainROM: public SubdomainBase<mesh_t, typename app_type::state_type>
     using graph_t = typename mesh_t::graph_t;
     using scalar_t = typename app_t::scalar_type;
     using state_t  = typename app_t::state_type;
-    using base_t = SubdomainBase<mesh_t, state_t>;
 
     using trans_t = decltype(read_vector_from_binary<scalar_t>(std::declval<std::string>()));
     using basis_t = decltype(read_matrix_from_binary<scalar_t>(std::declval<std::string>(), std::declval<int>()));
@@ -198,7 +198,7 @@ public:
         BCType bcRight, BCType bcBack,
         prob_t probId,
         pressio::ode::StepScheme odeScheme,
-        pressiodemoapps::InviscidFluxReconstruction order,
+        pda::InviscidFluxReconstruction order,
         const int icflag,
         const std::unordered_map<std::string, typename mesh_t::scalar_type> & userParams,
         const std::string & transRoot,
@@ -207,7 +207,7 @@ public:
     : m_domIdx(domainIndex)
     , m_mesh(&mesh)
     , m_neighborGraph(&neighborGraph)
-    , m_app(std::make_shared<app_t>(pressiodemoapps::create_problem_eigen(
+    , m_app(std::make_shared<app_t>(pda::create_problem_eigen(
             mesh, probId, order,
             BCFunctor<mesh_t>(bcLeft),  BCFunctor<mesh_t>(bcFront),
             BCFunctor<mesh_t>(bcRight), BCFunctor<mesh_t>(bcBack),
@@ -239,6 +239,7 @@ public:
 
     state_t * getStateBCs() final { return &m_stateBCs; }
     state_t * getState() final { return &m_state; }
+    state_t * getStateFull() final { return &m_state; }
     int getDofPerCell() const final { return m_app->numDofPerCell(); }
     const mesh_t & getMesh() const final { return *m_mesh; }
     const graph_t & getNeighborGraph() const final { return *m_neighborGraph; }
@@ -258,7 +259,7 @@ public:
             }
         }
         const int numDofStencilBc = m_app->numDofPerCell() * numGhostCells;
-        pressiodemoapps::resize(m_stateBCs, numDofStencilBc);
+        pda::resize(m_stateBCs, numDofStencilBc);
         m_stateBCs.fill(0.0);
     }
 
@@ -335,7 +336,7 @@ public:
         BCType bcRight, BCType bcBack,
         prob_t probId,
         pressio::ode::StepScheme odeScheme,
-        pressiodemoapps::InviscidFluxReconstruction order,
+        pda::InviscidFluxReconstruction order,
         const int icflag,
         const std::unordered_map<std::string, typename mesh_t::scalar_type> & userParams,
         const std::string & transRoot,
@@ -365,6 +366,256 @@ private:
     nonlinsolver_t m_nonlinSolver;
 };
 
+
+template<class mesh_t, class app_type>
+class SubdomainHyper: public SubdomainBase<mesh_t, typename app_type::state_type>
+{
+
+private:
+    using app_t    = app_type;
+    using graph_t  = typename mesh_t::graph_t;
+    using scalar_t = typename app_t::scalar_type;
+    using state_t  = typename app_t::state_type;
+
+    using trans_t = decltype(read_vector_from_binary<scalar_t>(std::declval<std::string>()));
+    using basis_t = decltype(read_matrix_from_binary<scalar_t>(std::declval<std::string>(), std::declval<int>()));
+    using trial_t = decltype(prom::create_trial_column_subspace<
+        state_t>(std::declval<basis_t&&>(), std::declval<trans_t&&>(), true));
+
+    using stencil_t  = decltype(create_cell_gids_vector_and_fill_from_ascii(std::declval<std::string>()));
+    using transHyp_t = decltype(reduce_vector_on_stencil_mesh(std::declval<trans_t&>(), std::declval<stencil_t&>(), std::declval<int>()));
+    using basisHyp_t = decltype(reduce_matrix_on_stencil_mesh(std::declval<basis_t&>(), std::declval<stencil_t&>(), std::declval<int>()));
+    using trialHyp_t = decltype(prom::create_trial_column_subspace<
+        state_t>(std::declval<basisHyp_t&&>(), std::declval<transHyp_t&&>(), true));
+
+public:
+
+    template<class prob_t>
+    SubdomainHyper(
+        const int domainIndex,
+        const mesh_t & meshFull,
+        const graph_t & neighborGraph,
+        BCType bcLeft, BCType bcFront,
+        BCType bcRight, BCType bcBack,
+        prob_t probId,
+        pressio::ode::StepScheme odeScheme,
+        pda::InviscidFluxReconstruction order,
+        const int icflag,
+        const std::unordered_map<std::string, typename mesh_t::scalar_type> & userParams,
+        const std::string & transRoot,
+        const std::string & basisRoot,
+        const int nmodes,
+        const mesh_t & meshHyper,
+        const std::string & meshPathHyper)
+    : m_domIdx(domainIndex)
+    , m_meshFull(&meshFull)
+    , m_meshHyper(&meshHyper)
+    , m_appFull(std::make_shared<app_t>(pda::create_problem_eigen(
+            meshFull, probId, order,
+            BCFunctor<mesh_t>(bcLeft),  BCFunctor<mesh_t>(bcFront),
+            BCFunctor<mesh_t>(bcRight), BCFunctor<mesh_t>(bcBack),
+            icflag, userParams)))
+    , m_appHyper(std::make_shared<app_t>(pda::create_problem_eigen(
+            meshHyper, probId, order,
+            BCFunctor<mesh_t>(bcLeft),  BCFunctor<mesh_t>(bcFront),
+            BCFunctor<mesh_t>(bcRight), BCFunctor<mesh_t>(bcBack),
+            icflag, userParams)))
+    , m_neighborGraph(&neighborGraph)
+    , m_stencilFile(meshPathHyper + "/stencil_mesh_gids.dat")
+    , m_sampleFile(meshPathHyper + "/sample_mesh_gids.dat")
+    , m_stencilGids(create_cell_gids_vector_and_fill_from_ascii(m_stencilFile))
+    , m_nmodes(nmodes)
+    , m_transFull(read_vector_from_binary<scalar_t>(transRoot + "_" + std::to_string(domainIndex) + ".bin"))
+    , m_basisFull(read_matrix_from_binary<scalar_t>(basisRoot + "_" + std::to_string(domainIndex) + ".bin", nmodes))
+    , m_transRead(read_vector_from_binary<scalar_t>(transRoot + "_" + std::to_string(domainIndex) + ".bin"))
+    , m_basisRead(read_matrix_from_binary<scalar_t>(basisRoot + "_" + std::to_string(domainIndex) + ".bin", nmodes))
+    , m_transHyper(reduce_vector_on_stencil_mesh(m_transRead, m_stencilGids, m_appFull->numDofPerCell()))
+    , m_basisHyper(reduce_matrix_on_stencil_mesh(m_basisRead, m_stencilGids, m_appFull->numDofPerCell()))
+    , m_trialSpaceFull(prom::create_trial_column_subspace<
+       state_t>(std::move(m_basisFull), std::move(m_transFull), true))
+    , m_trialSpaceHyper(prom::create_trial_column_subspace<
+       state_t>(std::move(m_basisHyper), std::move(m_transHyper), true))
+    {
+
+        m_stateStencil = m_appHyper->initialCondition();
+        m_stateFull = m_appFull->initialCondition();
+        m_stateReduced = m_trialSpaceHyper.createReducedState();
+        init_bc_state();
+
+        // project initial conditions
+        auto u = pressio::ops::clone(this->m_stateFull);
+        pressio::ops::update(u, 0., this->m_stateFull, 1, m_trialSpaceFull.translationVector(), -1);
+        pressio::ops::product(::pressio::transpose(), 1., m_trialSpaceFull.basis(), u, 0., m_stateReduced);
+        m_trialSpaceFull.mapFromReducedState(m_stateReduced, this->m_stateFull);
+
+    }
+
+    state_t & getLastStateInHistory() final { return m_stateHistVec.back(); }
+    void setBCPointer(pda::impl::GhostRelativeLocation grl, state_t * v) final{
+        m_appHyper->setBCPointer(grl, v);
+    }
+    void setBCPointer(pda::impl::GhostRelativeLocation grl, graph_t * v) final{
+        m_appHyper->setBCPointer(grl, v);
+    }
+
+    state_t * getStateBCs() final { return &m_stateBCs; }
+    state_t * getState() final { return &m_stateStencil; }
+    state_t * getStateFull() final {
+        m_trialSpaceFull.mapFromReducedState(m_stateReduced, m_stateFull);
+        return &m_stateFull;
+    }
+    int getDofPerCell() const final { return m_appHyper->numDofPerCell(); }
+    const mesh_t & getMesh() const final { return *m_meshHyper; }
+    const graph_t & getNeighborGraph() const final { return *m_neighborGraph; }
+
+    void init_bc_state()
+    {
+
+        // count number of neighbor ghost cells in neighborGraph
+        int numGhostCells = 0;
+        const auto & rowsBd = m_meshHyper->graphRowsOfCellsNearBd();
+        for (int bdIdx = 0; bdIdx < rowsBd.size(); ++bdIdx) {
+            auto rowIdx = rowsBd[bdIdx];
+            // start at 1 to ignore own ID
+            for (int colIdx = 1; colIdx < m_neighborGraph->cols(); ++colIdx) {
+                if ((*m_neighborGraph)(rowIdx, colIdx) != -1) {
+                    numGhostCells++;
+                }
+            }
+        }
+        const int numDofStencilBc = m_appHyper->numDofPerCell() * numGhostCells;
+        pda::resize(m_stateBCs, numDofStencilBc);
+        m_stateBCs.fill(0.0);
+    }
+
+    void allocateStorageForHistory(const int count){
+        for (int histIdx = 0; histIdx < count + 1; ++histIdx) {
+            this->m_stateHistVec.emplace_back(m_appHyper->createState());
+            m_stateReducedHistVec.emplace_back(m_trialSpaceHyper.createReducedState());
+        }
+    }
+
+    void storeStateHistory(const int step) final {
+        this->m_stateHistVec[step] = this->m_stateStencil;
+        this->m_stateReducedHistVec[step] = this->m_stateReduced;
+    }
+
+    void resetStateFromHistory() final {
+        this->m_stateStencil = this->m_stateHistVec[0];
+        this->m_stateReduced = this->m_stateReducedHistVec[0];
+    }
+
+    void updateFullState() final {
+        m_trialSpaceHyper.mapFromReducedState(m_stateReduced, this->m_stateStencil);
+    }
+
+public:
+    int m_domIdx;
+    mesh_t const * m_meshFull;
+    mesh_t const * m_meshHyper;
+    graph_t const * m_neighborGraph;
+    std::shared_ptr<app_t> m_appFull;
+    std::shared_ptr<app_t> m_appHyper;
+
+    state_t m_stateStencil;  // on stencil mesh
+    state_t m_stateFull;     // on full, unsampled mesh (required for projection)
+    state_t m_stateReduced;  // latent state
+    state_t m_stateBCs;
+    std::vector<state_t> m_stateHistVec;
+    std::vector<state_t> m_stateReducedHistVec;
+
+    std::string m_stencilFile;
+    std::string m_sampleFile;
+    stencil_t m_stencilGids;
+
+    int m_nmodes;
+    trans_t m_transFull;
+    basis_t m_basisFull;
+    trans_t m_transRead;
+    basis_t m_basisRead;
+    trial_t m_trialSpaceFull;
+    transHyp_t m_transHyper;
+    basisHyp_t m_basisHyper;
+    trialHyp_t m_trialSpaceHyper;
+
+};
+
+template<class mesh_t, class app_type>
+class SubdomainLSPGHyper: public SubdomainHyper<mesh_t, app_type>
+{
+
+private:
+    using app_t    = app_type;
+    using graph_t  = typename mesh_t::graph_t;
+    using scalar_t = typename app_t::scalar_type;
+    using state_t  = typename app_t::state_type;
+
+    using trans_t = decltype(read_vector_from_binary<scalar_t>(std::declval<std::string>()));
+    using basis_t = decltype(read_matrix_from_binary<scalar_t>(std::declval<std::string>(), std::declval<int>()));
+    using stencil_t  = decltype(create_cell_gids_vector_and_fill_from_ascii(std::declval<std::string>()));
+    using transHyp_t = decltype(reduce_vector_on_stencil_mesh(std::declval<trans_t&>(), std::declval<stencil_t&>(), 1));
+    using basisHyp_t = decltype(reduce_matrix_on_stencil_mesh(std::declval<basis_t&>(), std::declval<stencil_t&>(), 1));
+    using trialHyp_t = decltype(prom::create_trial_column_subspace<
+        state_t>(std::declval<basisHyp_t&&>(), std::declval<transHyp_t&&>(), true));
+
+    using hessian_t   = Eigen::Matrix<scalar_t, -1, -1>; // TODO: generalize?
+    using solver_tag  = pressio::linearsolvers::direct::HouseholderQR;
+    using linsolver_t = pressio::linearsolvers::Solver<solver_tag, hessian_t>;
+
+    using updaterHyp_t   = HypRedUpdater<scalar_t>;
+    using problemHyp_t   = decltype(plspg::create_unsteady_problem(pressio::ode::StepScheme(), std::declval<trialHyp_t&>(), std::declval<app_t&>(), std::declval<updaterHyp_t&>()));
+    using stepperHyp_t   = decltype(std::declval<problemHyp_t>().lspgStepper());
+    using nonlinsolverHyp_t = decltype(pressio::create_gauss_newton_solver(std::declval<stepperHyp_t&>(), std::declval<linsolver_t&>()));
+
+public:
+
+    template<class prob_t>
+    SubdomainLSPGHyper(
+        const int domainIndex,
+        const mesh_t & meshFull,
+        const graph_t & neighborGraph,
+        BCType bcLeft, BCType bcFront,
+        BCType bcRight, BCType bcBack,
+        prob_t probId,
+        pressio::ode::StepScheme odeScheme,
+        pda::InviscidFluxReconstruction order,
+        const int icflag,
+        const std::unordered_map<std::string, typename mesh_t::scalar_type> & userParams,
+        const std::string & transRoot,
+        const std::string & basisRoot,
+        const int nmodes,
+        const mesh_t & meshHyper,
+        const std::string & meshPathHyper)
+    : SubdomainHyper<mesh_t, app_type>::SubdomainHyper(
+        domainIndex, meshFull, neighborGraph,
+        bcLeft, bcFront, bcRight, bcBack,
+        probId, odeScheme, order, icflag, userParams,
+        transRoot, basisRoot, nmodes,
+        meshHyper, meshPathHyper)
+    , m_updaterHyper(create_hyper_updater<mesh_t>(this->getDofPerCell(), this->m_stencilFile, this->m_sampleFile))
+    , m_problemHyper(plspg::create_unsteady_problem(odeScheme, this->m_trialSpaceHyper, *(this->m_appHyper), m_updaterHyper))
+    , m_stepperHyper(m_problemHyper.lspgStepper())
+    , m_linSolverObjHyper(std::make_shared<linsolver_t>())
+    , m_nonlinSolverHyper(pressio::create_gauss_newton_solver(m_stepperHyper, *m_linSolverObjHyper))
+    {
+
+    }
+
+    void doStep(pode::StepStartAt<double> startTime, pode::StepCount step, pode::StepSize<double> dt) final {
+        m_stepperHyper(this->m_stateReduced, startTime, step, dt, m_nonlinSolverHyper);
+    }
+
+// TODO: to protected
+public:
+
+    updaterHyp_t m_updaterHyper;
+    problemHyp_t m_problemHyper;
+    stepperHyp_t m_stepperHyper;
+    std::shared_ptr<linsolver_t> m_linSolverObjHyper;
+    nonlinsolverHyp_t m_nonlinSolverHyper;
+
+};
+
 //
 // auxiliary function to create a vector of meshes given a count and meshRoot
 //
@@ -374,12 +625,13 @@ auto create_meshes(std::string const & meshRoot, const int n)
     using graph_t = typename mesh_t::graph_t;
 
     std::vector<mesh_t> meshes;
+    std::vector<std::string> meshPaths;
     std::vector<graph_t> neighborGraphs(n);
 
     for (int domIdx = 0; domIdx < n; ++domIdx) {
         // read mesh
-        std::string meshPath = meshRoot + "/domain_" + std::to_string(domIdx);
-        meshes.emplace_back( pda::load_cellcentered_uniform_mesh_eigen(meshPath) );
+        meshPaths.emplace_back(meshRoot + "/domain_" + std::to_string(domIdx));
+        meshes.emplace_back( pda::load_cellcentered_uniform_mesh_eigen(meshPaths.back()) );
 
         // read neighbor connectivity
         const auto numNeighbors = (meshes.back().stencilSize() - 1) * meshes.back().dimensionality();
@@ -387,7 +639,7 @@ auto create_meshes(std::string const & meshRoot, const int n)
         pda::resize(neighborGraphs[domIdx], meshes.back().sampleMeshSize(), graphNumCols);
 
         // this is ripped directly from mesh_read_connectivity, since it doesn't generalize the file name
-        const auto inFile = meshPath + "/connectivity_neighbor.dat";
+        const auto inFile = meshPaths.back() + "/connectivity_neighbor.dat";
         std::ifstream foundFile(inFile);
         if (!foundFile) {
             std::cout << "file not found " << inFile << std::endl;
@@ -413,7 +665,7 @@ auto create_meshes(std::string const & meshRoot, const int n)
         source.close();
     }
 
-    return std::pair(meshes, neighborGraphs);
+    return std::tuple(meshes, meshPaths, neighborGraphs);
 }
 
 //
@@ -426,17 +678,22 @@ auto create_subdomains(
     const Tiling & tiling,
     prob_t probId,
     pode::StepScheme odeScheme,
-    pressiodemoapps::InviscidFluxReconstruction order,
+    pda::InviscidFluxReconstruction order,
     int icFlag = 0,
     const std::unordered_map<std::string, typename app_t::scalar_type> & userParams = {})
 {
     auto ndomains = tiling.count();
     std::vector<std::string> domFlagVec(ndomains, "FOM");
+
+    // dummy arguments
     std::vector<int> nmodesVec(ndomains, -1);
+    std::vector<mesh_t> meshesHyper(ndomains);
+    std::vector<std::string> meshPathsHyper(ndomains, "");
 
     return create_subdomains<app_t>(meshes, neighborGraphs, tiling,
         probId, odeScheme, order,
-        domFlagVec, "", "", nmodesVec, icFlag, userParams);
+        domFlagVec, "", "", nmodesVec,
+        icFlag, meshesHyper, meshPathsHyper, userParams);
 
 }
 
@@ -450,12 +707,14 @@ auto create_subdomains(
     const Tiling & tiling,
     prob_t probId,
     pode::StepScheme odeScheme,
-    pressiodemoapps::InviscidFluxReconstruction order,
+    pda::InviscidFluxReconstruction order,
     const std::vector<std::string> & domFlagVec,
     const std::string & transRoot,
     const std::string & basisRoot,
     const std::vector<int> & nmodesVec,
     int icFlag = 0,
+    const std::vector<mesh_t> & meshesHyper = {},
+    const std::vector<std::string> & meshPathsHyper = {},
     const std::unordered_map<std::string, typename app_t::scalar_type> & userParams = {})
 {
 
@@ -467,7 +726,7 @@ auto create_subdomains(
 
     const int ndomX = tiling.countX();
     const int ndomY = tiling.countY();
-    // const int ndomZ = tiling.countZ();
+    const int ndomZ = tiling.countZ();
     const int ndomains = tiling.count();
 
     // determine boundary conditions for each subdomain, specify app type
@@ -516,6 +775,16 @@ auto create_subdomains(
                 bcLeft, bcFront, bcRight, bcBack,
                 probId, odeScheme, order, icFlag, userParams,
                 transRoot, basisRoot, nmodesVec[domIdx]));
+        }
+        else if (domFlagVec[domIdx] == "LSPGHyper") {
+            // TODO: the access of meshesHyper is a little wonky,
+            //      as it's not guaranteed that every mesh be a sample mesh
+            result.emplace_back(std::make_shared<SubdomainLSPGHyper<mesh_t, app_t>>(
+                domIdx, meshes[domIdx], neighborGraphs[domIdx],
+                bcLeft, bcFront, bcRight, bcBack,
+                probId, odeScheme, order, icFlag, userParams,
+                transRoot, basisRoot, nmodesVec[domIdx],
+                meshesHyper[domIdx], meshPathsHyper[domIdx]));
         }
         else {
             std::runtime_error("Invalid subdomain flag value: " + domFlagVec[domIdx]);

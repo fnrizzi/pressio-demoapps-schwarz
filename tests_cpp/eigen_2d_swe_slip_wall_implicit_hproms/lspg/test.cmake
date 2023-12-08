@@ -16,7 +16,7 @@ else()
   message("Global sample mesh generation succeeded!")
 endif()
 
-set(CMD "python3 ${SAMPMESHDRIVER} --fullMeshDir ./full_mesh --sampleMeshIndices ./sample_mesh/sample_mesh_gids.txt --outDir ./sample_mesh")
+set(CMD "python3 ${SAMPMESHDRIVER} --fullMeshDir ./full_mesh --sampleMeshIndices ./sample_mesh/sample_mesh_gids.dat --outDir ./sample_mesh")
 execute_process(COMMAND ${BASH} -c ${CMD} RESULT_VARIABLE RES)
 if(RES)
   message(FATAL_ERROR "Local sample mesh generation failed")

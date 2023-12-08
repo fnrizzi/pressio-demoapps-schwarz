@@ -182,6 +182,22 @@ struct HypRedUpdater
     }
 };
 
+template<class mesh_t>
+auto create_hyper_updater(
+    const int numDofsPerCell,
+    const std::string & stfile,
+    const std::string & safile)
+{
+    using scalar_type = typename mesh_t::scalar_t;
+
+    checkfile(stfile);
+    checkfile(safile);
+
+    using return_type = HypRedUpdater<scalar_type>;
+    return return_type(numDofsPerCell, stfile, safile);
+
+}
+
 // extract stencil mesh values from full-order matrix
 // rows are unrolled state vector, columns are basis/snapshot/etc. vectors
 // OperandType should really be an Eigen::Vector

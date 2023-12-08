@@ -27,7 +27,7 @@ int main()
     std::string basisfile = "./trial_space/basis.bin";
     const int nmodes = 25;
     std::string stencilFile = "./sample_mesh/stencil_mesh_gids.dat";
-    std::string sampleFile = "./sample_mesh/sample_mesh_gids.txt";
+    std::string sampleFile = "./sample_mesh/sample_mesh_gids.dat";
 
     constexpr auto order = pda::InviscidFluxReconstruction::FirstOrder;
     auto scheme = pode::StepScheme::BDF1;

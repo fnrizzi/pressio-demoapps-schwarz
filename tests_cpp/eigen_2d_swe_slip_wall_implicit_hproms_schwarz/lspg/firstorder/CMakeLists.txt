@@ -2,7 +2,7 @@
 set(testname eigen_2d_swe_slip_wall_firstorder_implicit_lspg_hyper_schwarz)
 set(exename  ${testname}_exe)
 
-#configure_file(../plot.py plot.py COPYONLY)
+configure_file(../plot.py plot.py COPYONLY)
 configure_file(../../gen_trial_space.py gen_trial_space.py COPYONLY)
 configure_file(../../gen_sample_mesh.py gen_sample_mesh.py COPYONLY)
 #configure_file(../compare.py compare.py COPYONLY)

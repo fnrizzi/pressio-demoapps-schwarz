@@ -198,7 +198,7 @@ def gen_pod_bases(
         # determine 99%, 99.9%, 99.99%
         sumsq = np.sum(np.square(svals))
         res = 1.0 - np.cumsum(np.square(svals)) / sumsq
-        energy_file = os.path.join(outdir, f"pod_power{numstr}.txt")
+        energy_file = os.path.join(outdir, f"pod_power{numstr}.dat")
         with open(energy_file, "w") as f:
             f.write(f"99.00%: {np.argwhere(res < 0.01)[0][0]}\n")
             f.write(f"99.90%: {np.argwhere(res < 0.001)[0][0]}\n")
@@ -511,7 +511,7 @@ def gen_sample_mesh(
         if samptype == "random":
             samples = gen_random_samples(0, ncells-1, npoints, randseed=randseed)
 
-        outfile = os.path.join(outdir, "sample_mesh_gids.txt")
+        outfile = os.path.join(outdir, "sample_mesh_gids.dat")
         print(f"Saving sample mesh global indices to {outfile}")
         np.savetxt(outfile, samples, fmt='%8i')
 
@@ -542,7 +542,7 @@ def gen_sample_mesh(
             outdir_sub = os.path.join(outdir, f"domain_{dom_idx}")
             if not os.path.isdir(outdir_sub):
                 os.mkdir(outdir_sub)
-            outfile = os.path.join(outdir_sub, "sample_mesh_gids.txt")
+            outfile = os.path.join(outdir_sub, "sample_mesh_gids.dat")
             print(f"Saving sample mesh global indices to {outfile}")
             np.savetxt(outfile, samples, fmt='%8i')
 

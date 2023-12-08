@@ -9,8 +9,6 @@ from pdas.data_utils import load_info_domain, load_mesh_single
 def make_subdomain_list(ndom_list, default=None):
     return [[[default for _ in range(ndom_list[2])] for _ in range(ndom_list[1])] for _ in range(ndom_list[0])]
 
-# def get_cell_idxs()
-
 
 # a lot of this is copied from pressio-demoapps "create_sample_mesh.py"
 # have to recreate it, since it doesn't account for Schwarz overlap cells in stencil mesh
@@ -161,6 +159,16 @@ def main(decompdir, sampdir, gidfile):
                             connect_samp_neigh[i][j][k][samp_idx, connect_idx] = neigh_gid
                             stencil_gids_sub[i_neigh][j_neigh][k_neigh] = np.unique(np.concatenate((stencil_gids_sub[i_neigh][j_neigh][k_neigh], [neigh_gid])))
 
+    # write stencil GIDs
+    for dom_idx in range(ndomains):
+        i = dom_idx % ndom_list[0]
+        j = int(dom_idx / ndom_list[0])
+        k = int(dom_idx / (ndom_list[0] * ndom_list[1]))
+
+        meshdir_sub = os.path.join(sampdir, f"domain_{dom_idx}")
+        stencil_gid_file = os.path.join(meshdir_sub, "stencil_mesh_gids.dat")
+        np.savetxt(stencil_gid_file, stencil_gids_sub[i][j][k], fmt="%8d")
+
     # generate global-to-stencil map for each subdomain
     global_to_stencil_map_sub = make_subdomain_list(ndom_list)
     for dom_idx in range(ndomains):
@@ -259,46 +267,46 @@ def main(decompdir, sampdir, gidfile):
         # write neighboring stencil IDs
         with open(os.path.join(meshdir_sub, "connectivity_neighbor.dat"), "w") as f:
             for samp_idx in range(nsamps):
-                if any(connect_samp_neigh[i][j][k][samp_idx, :] != -1):
-                    stencil_id = global_to_stencil_map[samp_gids[samp_idx]]
-                    f.write(f"{stencil_id:8d}")
-                    for stencil_idx in range(nstencil):
-                        neigh_gid = connect_samp_neigh[i][j][k][samp_idx, stencil_idx]
-                        if neigh_gid == -1:
-                            neigh_sid = -1
-                        else:
-                            i_neigh = i
-                            j_neigh = j
-                            k_neigh = k
-                            remain = stencil_idx % (ndim * 2)
-                            # left
-                            if remain == 0:
-                                i_neigh -= 1
-                            # right (1D)
-                            if (ndim == 1) and (remain == 1):
+                # if any(connect_samp_neigh[i][j][k][samp_idx, :] != -1):
+                stencil_id = global_to_stencil_map[samp_gids[samp_idx]]
+                f.write(f"{stencil_id:8d}")
+                for stencil_idx in range(nstencil):
+                    neigh_gid = connect_samp_neigh[i][j][k][samp_idx, stencil_idx]
+                    if neigh_gid == -1:
+                        neigh_sid = -1
+                    else:
+                        i_neigh = i
+                        j_neigh = j
+                        k_neigh = k
+                        remain = stencil_idx % (ndim * 2)
+                        # left
+                        if remain == 0:
+                            i_neigh -= 1
+                        # right (1D)
+                        if (ndim == 1) and (remain == 1):
+                            i_neigh += 1
+                        if ndim > 1:
+                            # front
+                            if remain == 1:
+                                j_neigh += 1
+                            # right
+                            if remain == 2:
                                 i_neigh += 1
-                            if ndim > 1:
-                                # front
-                                if remain == 1:
-                                    j_neigh += 1
-                                # right
-                                if remain == 2:
-                                    i_neigh += 1
-                                # back
-                                if remain == 3:
-                                    j_neigh -= 1
-                            if ndim == 3:
-                                # bottom
-                                if remain == 4:
-                                    k_neigh -= 1
-                                # top
-                                if remain == 5:
-                                    k_neigh += 1
-                            global_to_stencil_map_neigh = global_to_stencil_map_sub[i_neigh][j_neigh][k_neigh]
-                            neigh_sid = global_to_stencil_map_neigh[neigh_gid]
+                            # back
+                            if remain == 3:
+                                j_neigh -= 1
+                        if ndim == 3:
+                            # bottom
+                            if remain == 4:
+                                k_neigh -= 1
+                            # top
+                            if remain == 5:
+                                k_neigh += 1
+                        global_to_stencil_map_neigh = global_to_stencil_map_sub[i_neigh][j_neigh][k_neigh]
+                        neigh_sid = global_to_stencil_map_neigh[neigh_gid]
 
-                        f.write(f" {neigh_sid}")
-                    f.write("\n")
+                    f.write(f" {neigh_sid:8d}")
+                f.write("\n")
 
 if __name__ == "__main__":
 
@@ -322,7 +330,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--sampleGIDFile", "--sample_gid_file",
         dest="gidfile",
-        default="sample_mesh_gids.txt",
+        default="sample_mesh_gids.dat",
         help="Name of sample mesh GID file.",
     )
 
