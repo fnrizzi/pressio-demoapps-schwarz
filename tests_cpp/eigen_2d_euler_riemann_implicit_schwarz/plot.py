@@ -1,3 +1,4 @@
+import os
 
 from pdas.vis_utils import plot_contours
 
@@ -10,6 +11,9 @@ from pdas.vis_utils import plot_contours
 varplot = 0
 
 # ----- END USER INPUTS -----
+
+exe_dir = os.path.dirname(os.path.realpath(__file__))
+order = os.path.basename(os.path.normpath(exe_dir))
 
 if varplot == 0:
     varlabel = r"Density"
@@ -35,8 +39,8 @@ elif varplot == 3:
 # TODO: modify monolithic directory to correct stencil order
 plot_contours(
     varplot,
-    meshdirs=["../../eigen_2d_euler_riemann_implicit/firstorder", "./mesh"],
-    datadirs=["../../eigen_2d_euler_riemann_implicit/firstorder", "./"],
+    meshdirs=[f"../../eigen_2d_euler_riemann_implicit/{order}", "./mesh"],
+    datadirs=[f"../../eigen_2d_euler_riemann_implicit/{order}", "./"],
     nvars=4,
     dataroot="riemann2d_solution",
     plotlabels=["Monolithic", "Schwarz, 2x2"],
@@ -45,6 +49,8 @@ plot_contours(
     contourbounds=contourbounds,
     plotskip=2,
     varlabel=varlabel,
+    plotbounds=True,
+    bound_colors=["b", "r", "m", "c"],
     figdim_base=[8, 9],
     vertical=False,
 )

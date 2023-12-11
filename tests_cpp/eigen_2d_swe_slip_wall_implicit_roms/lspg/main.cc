@@ -26,7 +26,13 @@ int main()
     std::string basisfile = "./trial_space/basis.bin";
     const int nmodes = 25;
 
-    constexpr auto order = pda::InviscidFluxReconstruction::FirstOrder;
+#ifdef USE_WENO5
+    const auto order   = pda::InviscidFluxReconstruction::Weno5;
+#elif defined USE_WENO3
+    const auto order   = pda::InviscidFluxReconstruction::Weno3;
+#else
+    const auto order   = pda::InviscidFluxReconstruction::FirstOrder;
+#endif
     auto scheme = pode::StepScheme::BDF1;
     const int icFlag = 1;
 

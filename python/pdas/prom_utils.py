@@ -1,5 +1,6 @@
 import os
 import struct
+from math import floor
 
 import numpy as np
 from scipy.linalg import svd
@@ -197,7 +198,7 @@ def gen_pod_bases(
         # determine 99%, 99.9%, 99.99%
         sumsq = np.sum(np.square(svals))
         res = 1.0 - np.cumsum(np.square(svals)) / sumsq
-        energy_file = os.path.join(outdir, f"pod_power{numstr}.txt")
+        energy_file = os.path.join(outdir, f"pod_power{numstr}.dat")
         with open(energy_file, "w") as f:
             f.write(f"99.00%: {np.argwhere(res < 0.01)[0][0]}\n")
             f.write(f"99.90%: {np.argwhere(res < 0.001)[0][0]}\n")
@@ -470,3 +471,94 @@ def calc_projection(
         raise ValueError("Unexpected basis type")
 
     return datalist_out
+
+
+def gen_sample_mesh(
+    samptype,
+    meshdir,
+    outdir,
+    percpoints=None,
+    npoints=None,
+    randseed=0,
+):
+    # expand as necessary
+    assert samptype in ["random"]
+
+    # for monolithic, can specify percentage or number, not both
+    assert (percpoints is not None) != (npoints is not None)
+
+    if percpoints is not None:
+        assert (percpoints > 0.0) and (percpoints <= 1.0)
+
+    if not os.path.isdir(outdir):
+        os.mkdir(outdir)
+
+     # get monolithic mesh dimensions
+    coords_full, coords_sub = load_meshes(meshdir)
+    ndim = coords_full.shape[-1]
+
+    # monolithic sample mesh
+    if coords_sub is None:
+
+        meshdims = coords_full.shape[:-1]
+        ncells = np.prod(meshdims)
+
+        if percpoints is not None:
+            npoints = floor(ncells * percpoints)
+
+        assert (npoints > 0) and (npoints <= ncells)
+
+        if samptype == "random":
+            samples = gen_random_samples(0, ncells-1, npoints, randseed=randseed)
+
+        outfile = os.path.join(outdir, "sample_mesh_gids.dat")
+        print(f"Saving sample mesh global indices to {outfile}")
+        np.savetxt(outfile, samples, fmt='%8i')
+
+    # decomposed sample mesh
+    else:
+        # decomposed only works with percentage, for now
+        assert percpoints is not None
+
+        ndom_list, _ = load_info_domain(meshdir)
+        ndomains = np.prod(ndom_list)
+
+        for dom_idx in range(ndomains):
+            i = dom_idx % ndom_list[0]
+            j = int(dom_idx / ndom_list[0])
+            k = int(dom_idx / (ndom_list[0] * ndom_list[1]))
+
+            coords_local = coords_sub[i][j][k]
+            meshdims = coords_local.shape[:-1]
+            ncells = np.prod(meshdims)
+
+            # TODO: adjust this if enabling using npoints
+            npoints = floor(ncells * percpoints)
+
+            if samptype == "random":
+                # have to perturb random seed so sampling isn't the same in uniform subdomains
+                samples = gen_random_samples(0, ncells-1, npoints, randseed=randseed+dom_idx)
+
+            outdir_sub = os.path.join(outdir, f"domain_{dom_idx}")
+            if not os.path.isdir(outdir_sub):
+                os.mkdir(outdir_sub)
+            outfile = os.path.join(outdir_sub, "sample_mesh_gids.dat")
+            print(f"Saving sample mesh global indices to {outfile}")
+            np.savetxt(outfile, samples, fmt='%8i')
+
+
+def gen_random_samples(
+    low,
+    high,
+    numsamps,
+    randseed=0,
+):
+
+    rng = np.random.default_rng(seed=randseed)
+
+    all_samples = np.arange(low, high+1)
+    rng.shuffle(all_samples)
+
+    samples = np.sort(all_samples[:numsamps])
+
+    return samples

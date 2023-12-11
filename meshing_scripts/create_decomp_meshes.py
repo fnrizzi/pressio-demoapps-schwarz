@@ -2,6 +2,8 @@ import os
 import subprocess
 from argparse import ArgumentParser, RawTextHelpFormatter
 
+import numpy as np
+
 
 def prep_dim(N, ndom, bounds):
     d = (bounds[1] - bounds[0]) / N
@@ -11,6 +13,7 @@ def prep_dim(N, ndom, bounds):
         N_dom[idx] += 1
 
     return d, N_dom
+
 
 def prep_dom_dim(dom_idx, ndom, N_dom, offset, bounds, d):
 
@@ -34,6 +37,11 @@ def prep_dom_dim(dom_idx, ndom, N_dom, offset, bounds, d):
         bound[1] = bounds[0] + (sum(N_dom[:dom_idx+1]) + offset) * d
 
     return n, bound
+
+
+def get_linear_index(numdoms_list, i, j, k):
+    return i + numdoms_list[0] * j + (numdoms_list[0] + numdoms_list[1]) * k
+
 
 def main(
     numcells_list,
@@ -59,9 +67,7 @@ def main(
     assert len(numdoms_list) == ndim
 
     numdoms_list += [1] * (3 - ndim) # pad with ones for loop mechanics
-    numdoms = 1
-    for dim in range(ndim):
-        numdoms *= numdoms_list[dim]
+    numdoms = np.prod(numdoms_list)
 
     # spatial input checks
     for dim in range(ndim):
@@ -84,36 +90,38 @@ def main(
             bounds_list[2*dim:2*dim+2]
         )
 
-    # linear subdomain index
+    # subdomain dimensions
+    dom_grid_idxs = [None for _ in range(numdoms)]
+    numcells_sub_list = [[None for _ in range(ndim)] for _ in range(numdoms)]
+    bounds_sub_list = [[None for _ in range(2*ndim)] for _ in range(numdoms)]
     for dom_idx in range(numdoms):
-
-        if stdout:
-            print("Domain " + str(dom_idx))
-
         # gridded indices
-        dom_grid_idxs = [
+        dom_grid_idxs[dom_idx] = [
             dom_idx % numdoms_list[0],
             int(dom_idx / numdoms_list[0]),
             int(dom_idx / (numdoms_list[0] * numdoms_list[1])),
         ]
 
-        numcells_sub_list = [None for _ in range(ndim)]
-        bounds_sub_list = [None for _ in range(2*ndim)]
-
-        # subdomain dimensions
         for dim in range(ndim):
-            numcells_sub_list[dim], bounds_sub_list[2*dim:2*dim+1] = prep_dom_dim(
-                dom_grid_idxs[dim],
+            numcells_sub_list[dom_idx][dim], bounds_sub_list[dom_idx][2*dim:2*dim+1] = prep_dom_dim(
+                dom_grid_idxs[dom_idx][dim],
                 numdoms_list[dim],
                 ncells_dom_list[dim],
                 offset,
                 bounds_list[2*dim:2*dim+2],
                 dx_list[dim],
             )
+
+    # linear subdomain index
+    for dom_idx in range(numdoms):
+
         if stdout:
-            print("Cells: " + " x ".join(map(str, numcells_sub_list)))
+            print("Domain " + str(dom_idx))
+
+        if stdout:
+            print("Cells: " + " x ".join(map(str, numcells_sub_list[dom_idx])))
             for dim in range(ndim):
-                print(["x", "y", "z"][dim] + f"-bounds: ({bounds_sub_list[2*dim]}, {bounds_sub_list[2*dim+1]})")
+                print(["x", "y", "z"][dim] + f"-bounds: ({bounds_sub_list[dom_idx][2*dim]}, {bounds_sub_list[dom_idx][2*dim+1]})")
 
         # subdomain mesh subdirectory
         outdir_sub = os.path.join(outdir, "domain_" + str(dom_idx))
@@ -124,11 +132,77 @@ def main(
 
         # command line execution
         arg_tuple = ("python3", mesh_script,)
-        arg_tuple += ("-n",) + tuple([str(val) for val in numcells_sub_list])
+        arg_tuple += ("-n",) + tuple([str(val) for val in numcells_sub_list[dom_idx]])
         arg_tuple += ("--outDir", outdir_sub,)
         arg_tuple += ("--stencilsize", str(stencilsize),)
-        arg_tuple += ("--bounds",) + tuple([str(val) for val in bounds_sub_list[:2*ndim]])
+        arg_tuple += ("--bounds",) + tuple([str(val) for val in bounds_sub_list[dom_idx][:2*ndim]])
         popen  = subprocess.Popen(arg_tuple, stdout=subprocess.PIPE); popen.wait()
+
+        # load generated connectivity
+        connect = np.loadtxt(os.path.join(outdir_sub, "connectivity.dat"), dtype=np.int32)[:, 1:]
+
+        # write neighbor subdomain stencil connectivity
+        i = dom_grid_idxs[dom_idx][0]
+        j = dom_grid_idxs[dom_idx][1]
+        k = dom_grid_idxs[dom_idx][2]
+        with open(os.path.join(outdir_sub, "connectivity_neighbor.dat"), "w") as f:
+            ncells = np.prod(numcells_sub_list[dom_idx])
+            for cell_idx in range(ncells):
+                f.write(f"{cell_idx:8d}")
+
+                stencil_gids = connect[cell_idx, :]
+                x_idx = cell_idx % numcells_sub_list[dom_idx][0]
+                if ndim > 1:
+                    y_idx = int(cell_idx / numcells_sub_list[dom_idx][0])
+                if ndim == 3:
+                    z_idx = int(cell_idx / (numcells_sub_list[dom_idx][0] * numcells_sub_list[dom_idx][1]))
+
+
+                for stencil_idx in range(int((stencilsize - 1) / 2)):
+                    for axis_idx in range(ndim * 2):
+
+                        connect_idx = stencil_idx * ndim * 2 + axis_idx
+                        stencil_gid = stencil_gids[connect_idx]
+
+                        neigh_gid = -1
+
+                        if stencil_gid == -1:
+                            # left subdomain
+                            if (axis_idx == 0) and (i != 0):
+                                numcells_list_neigh = numcells_sub_list[get_linear_index(numdoms_list, i-1, j, k)]
+                                dist = x_idx
+                                neigh_gid = (numcells_list_neigh[0] * (y_idx + 1)) - overlap - stencil_idx + dist - 1
+                            # right subdomain (1D)
+                            if ndim == 1:
+                                if (axis_idx == 1) and (i != numdoms_list[0] - 1):
+                                    numcells_list_neigh = numcells_sub_list[get_linear_index(numdoms_list, i-1, j, k)]
+                                    dist = numcells_list_neigh[0] - x_idx - 1
+                                    neigh_gid = overlap + stencil_idx - dist
+
+                            if ndim > 1:
+                                # front boundary
+                                if (axis_idx == 1) and (j != numdoms_list[1] - 1):
+                                    numcells_list_neigh = numcells_sub_list[get_linear_index(numdoms_list, i, j+1, k)]
+                                    dist = numcells_list_neigh[1] - y_idx - 1
+                                    neigh_gid = (overlap + stencil_idx - dist) * numcells_list_neigh[0] + x_idx
+
+                                # right boundary (2D)
+                                if (axis_idx == 2) and (i != numdoms_list[0] - 1):
+                                    numcells_list_neigh = numcells_sub_list[get_linear_index(numdoms_list, i+1, j, k)]
+                                    dist = numcells_list_neigh[0] - x_idx - 1
+                                    neigh_gid = (numcells_list_neigh[0] * y_idx) + overlap + stencil_idx - dist
+
+                                # back boundary
+                                if (axis_idx == 3) and (j != 0):
+                                    numcells_list_neigh = numcells_sub_list[get_linear_index(numdoms_list, i, j-1, k)]
+                                    dist = y_idx
+                                    neigh_gid = (numcells_list_neigh[1] - 1 - overlap - stencil_idx + dist) * numcells_list_neigh[0] + x_idx
+
+                            if ndim == 3:
+                                raise ValueError("3D not completed")
+
+                        f.write(f" {neigh_gid:8d}")
+                f.write("\n")
 
     with open(os.path.join(outdir, "info_domain.dat"), "w") as f:
         f.write("dim %8d\n" % ndim)
