@@ -1,3 +1,4 @@
+import os
 
 from pdas.data_utils import load_field_data
 from pdas.prom_utils import load_reduced_data
@@ -11,6 +12,9 @@ from pdas.vis_utils import plot_contours
 varplot = 0
 
 # ----- END USER INPUTS -----
+
+exe_dir = os.path.dirname(os.path.realpath(__file__))
+order = os.path.basename(os.path.normpath(exe_dir))
 
 if varplot == 0:
     varlabel = r"Height"
@@ -29,10 +33,10 @@ elif varplot == 2:
     contourbounds = [-0.05, 0.05]
 
 fom_data, _ = load_field_data(
-    "../../../eigen_2d_swe_slip_wall_implicit/firstorder/",
+    f"../../../eigen_2d_swe_slip_wall_implicit/{order}/",
     "swe_slipWall2d_solution",
     3,
-    meshdir="../../../eigen_2d_swe_slip_wall_implicit/firstorder/",
+    meshdir=f"../../../eigen_2d_swe_slip_wall_implicit/{order}/",
 )
 
 rom_data = load_reduced_data(
@@ -49,7 +53,7 @@ rom_data = load_reduced_data(
 
 plot_contours(
     varplot,
-    meshdirs=["../../../eigen_2d_swe_slip_wall_implicit/firstorder/", "./full_mesh"],
+    meshdirs=[f"../../../eigen_2d_swe_slip_wall_implicit/{order}/", "./full_mesh"],
     datalist=[fom_data, rom_data],
     nvars=3,
     dataroot="swe_slipWall2d_solution",

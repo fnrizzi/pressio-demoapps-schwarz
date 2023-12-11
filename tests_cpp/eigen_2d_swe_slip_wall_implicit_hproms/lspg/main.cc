@@ -29,7 +29,13 @@ int main()
     std::string stencilFile = "./sample_mesh/stencil_mesh_gids.dat";
     std::string sampleFile = "./sample_mesh/sample_mesh_gids.dat";
 
-    constexpr auto order = pda::InviscidFluxReconstruction::FirstOrder;
+#ifdef USE_WENO5
+    const auto order   = pda::InviscidFluxReconstruction::Weno5;
+#elif defined USE_WENO3
+    const auto order   = pda::InviscidFluxReconstruction::Weno3;
+#else
+    const auto order   = pda::InviscidFluxReconstruction::FirstOrder;
+#endif
     auto scheme = pode::StepScheme::BDF1;
     const int icFlag = 1;
 
