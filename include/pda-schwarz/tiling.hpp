@@ -89,13 +89,7 @@ private:
             else if (colVal == "overlap"){
                 ss >> colVal;
                 m_overlap = stoi(colVal);
-                if (m_overlap < 0) throw std::runtime_error("overlap must be > 0");
-
-                // has to be an even number for simplicity, can change later
-                if (m_overlap % 2) {
-                    std::cerr << "overlap must be an even number" << std::endl;
-                    exit(-1);
-                }
+                if (m_overlap < 0) throw std::runtime_error("overlap must be >= 0");
             }
         }
         source.close();

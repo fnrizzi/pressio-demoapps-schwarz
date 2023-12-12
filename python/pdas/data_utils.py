@@ -1,5 +1,6 @@
 import os
 import struct
+from math import floor
 
 import numpy as np
 
@@ -24,7 +25,6 @@ def get_nested_decomp_dims(data_list):
 
 def get_full_dims_from_decomp(data_list, overlap, ndom_list=None, is_ts=True):
 
-    offset = round(overlap / 2)
     if ndom_list is None:
         ndom_list = get_nested_decomp_dims(data_list)
 
@@ -35,8 +35,28 @@ def get_full_dims_from_decomp(data_list, overlap, ndom_list=None, is_ts=True):
         ndim -= 1
 
     # combining grid dimensions, if requested
-    cells_list = [np.zeros(tuple([ndom for ndom in ndom_list])) for _ in range(3)]
+    cells_list = [np.zeros(tuple([ndom for ndom in ndom_list]), dtype=np.int32) for _ in range(3)]
     cells_total_list = [0 for _ in range(3)]
+
+    # count number of cells that were added to each side of a subdomain
+    added_bound = [[[0, 0] for _ in range(ndom_list[dim])] for dim in range(3)]
+    for dim in range(ndim):
+        ndom = ndom_list[dim]
+        tot_overlap = overlap * (ndom - 1)
+        added = floor(tot_overlap / ndom)
+        extra = tot_overlap % ndom
+        for dom_idx in range(ndom):
+
+            to_add = added
+            if dom_idx >= (ndom - extra):
+                to_add += 1
+
+            if dom_idx == 0:
+                added_bound[dim][dom_idx][0] = 0
+                added_bound[dim][dom_idx][1] = added
+            else:
+                added_bound[dim][dom_idx][0] = overlap - added_bound[dim][dom_idx-1][1]
+                added_bound[dim][dom_idx][1] = to_add - added_bound[dim][dom_idx][0]
 
     # individual domain shapes
     for i in range(ndom_list[0]):
@@ -44,46 +64,29 @@ def get_full_dims_from_decomp(data_list, overlap, ndom_list=None, is_ts=True):
             for k in range(ndom_list[2]):
                 cells = list(data_list[i][j][k].shape)
                 for dim in range(ndim):
-                    cells_list[dim][i, j, k] = cells[dim]
+                    cells_list[dim][i, j, k] = cells[dim] - sum(added_bound[dim][[i, j, k][dim]])
 
     # x-direction
     for i in range(ndom_list[0]):
-        cells_total_list[0] += data_list[i][0][0].shape[0]
-        if i != 0:
-            cells_total_list[0] -= offset
-        if i != (ndom_list[0] - 1):
-            cells_total_list[0] -= offset
+        cells_total_list[0] += data_list[i][0][0].shape[0] - sum(added_bound[0][i])
 
     # y-direction
     if ndim >= 2:
         for j in range(ndom_list[1]):
-            cells_total_list[1] += data_list[0][j][0].shape[1]
-            if j != 0:
-                cells_total_list[1] -= offset
-            if j != (ndom_list[1] - 1):
-                cells_total_list[1] -= offset
+            cells_total_list[1] += data_list[0][j][0].shape[1] - sum(added_bound[1][j])
 
     # z-direction
     if ndim == 3:
         for k in range(ndom_list[2]):
-            cells_total_list[2] += data_list[0][0][k].shape[2]
-            if k != 0:
-                cells_total_list[2] -= offset
-            if k != (ndom_list[2] - 1):
-                cells_total_list[2] -= offset
+            cells_total_list[2] += data_list[0][0][k].shape[2] - sum(added_bound[2][k])
 
-    return cells_list, cells_total_list
+    return cells_list, cells_total_list, added_bound
 
 
-def merge_domain_data(data_list, overlap, cells_list=None, cells_total_list=None, ndom_list=None, is_ts=True):
+def merge_domain_data(data_list, overlap, is_ts=True):
 
-    offset = round(overlap / 2)
-
-    if ndom_list is None:
-        ndom_list = get_nested_decomp_dims(data_list)
-    if (cells_list is None) or (cells_total_list is None):
-        cells_list, cells_total_list = get_full_dims_from_decomp(data_list, overlap, is_ts=is_ts)
-
+    ndom_list = get_nested_decomp_dims(data_list)
+    cells_list, cells_total_list, added_bound = get_full_dims_from_decomp(data_list, overlap, is_ts=is_ts)
 
     ndim = len(data_list[0][0][0].shape) - 1
     if is_ts:
@@ -101,63 +104,26 @@ def merge_domain_data(data_list, overlap, cells_list=None, cells_total_list=None
 
         # data indices
         # x-direction
-        if i == 0:
-            start_xidx = 0
-        else:
-            start_xidx = int(np.sum(cells_list[0][:i, 0, 0])) - offset * (2 * i - 1)
-        if i == (ndom_list[0] - 1):
-            end_xidx = cells_total_list[0]
-        else:
-            end_xidx = int(np.sum(cells_list[0][:i+1, 0, 0])) - offset * (2 * i + 1)
-
-        if i == 0:
-            start_xidx_sub = 0
-        else:
-            start_xidx_sub = offset
-        if i == (ndom_list[0] - 1):
-            end_xidx_sub = None
-        else:
-            end_xidx_sub = -offset
+        start_xidx = np.sum(cells_list[0][:i, 0, 0])
+        end_xidx = np.sum(cells_list[0][:i+1, 0, 0])
+        start_xidx_sub = added_bound[0][i][0]
+        end_xidx_sub = start_xidx_sub + cells_list[0][i, 0, 0]
 
         # y-direction
         if ndim >= 2:
-            if j == 0:
-                start_yidx = 0
-            else:
-                start_yidx = int(np.sum(cells_list[1][0, :j, 0])) - offset * (2 * j - 1)
-            if j == (ndom_list[1] - 1):
-                end_yidx = cells_total_list[1]
-            else:
-                end_yidx = int(np.sum(cells_list[1][0, :j+1, 0])) - offset * (2 * j + 1)
 
-            if j == 0:
-                start_yidx_sub = 0
-            else:
-                start_yidx_sub = offset
-            if j == (ndom_list[1] - 1):
-                end_yidx_sub = None
-            else:
-                end_yidx_sub = -offset
+            start_yidx = np.sum(cells_list[1][0, :j, 0])
+            end_yidx = np.sum(cells_list[1][0, :j+1, 0])
+            start_yidx_sub = added_bound[1][j][0]
+            end_yidx_sub = start_yidx_sub + cells_list[1][0, j, 0]
 
         # z-direction
         if ndim == 3:
-            if k == 0:
-                start_zidx = 0
-            else:
-                start_zidx = int(np.sum(cells_list[2][0, 0, :k])) - offset * (2 * k - 1)
-            if k == (ndom_list[2] - 1):
-                end_zidx = cells_total_list[2]
-            else:
-                end_zidx = int(np.sum(cells_list[2][0, 0, :k+1])) - offset * (2 * k + 1)
 
-            if k == 0:
-                start_zidx_sub = 0
-            else:
-                start_zidx_sub = offset
-            if k == (ndom_list[2] - 1):
-                end_zidx_sub = None
-            else:
-                end_zidx_sub = -offset
+            start_zidx = np.sum(cells_list[2][0, 0, :k])
+            end_zidx = np.sum(cells_list[2][0, 0, :k+1])
+            start_zidx_sub = added_bound[2][k][0]
+            end_zidx_sub = start_zidx_sub + cells_list[2][0, 0, k]
 
         # slice data and insert appropriately
         data_sub = data_list[i][j][k]
@@ -183,9 +149,8 @@ def decompose_domain_data(
     is_ts_decomp=True,
 ):
 
-    offset = round(overlap / 2)
     ndom_list = get_nested_decomp_dims(decomp_list)
-    cells_list, cells_total_list = get_full_dims_from_decomp(decomp_list, overlap, is_ts=is_ts_decomp)
+    cells_list, cells_total_list, added_bound = get_full_dims_from_decomp(decomp_list, overlap, is_ts=is_ts_decomp)
 
     ndim = len(data_single.shape) - 1
     if is_ts:
@@ -204,36 +169,18 @@ def decompose_domain_data(
         k = int(dom_idx / (ndom_list[0] * ndom_list[1]))
 
         # x-direction
-        if i == 0:
-            start_xidx = 0
-        else:
-            start_xidx = int(np.sum(cells_list[0][:i, 0, 0])) - offset * (2 * i)
-        if i == (ndom_list[0] - 1):
-            end_xidx = cells_total_list[0]
-        else:
-            end_xidx = int(np.sum(cells_list[0][:i+1, 0, 0])) - offset * (2 * i)
+        start_xidx = np.sum(cells_list[0][:i, 0, 0]) - added_bound[0][i][0]
+        end_xidx = np.sum(cells_list[0][:i+1, 0, 0]) + added_bound[0][i][1]
 
         # y-direction
         if ndim >= 2:
-            if j == 0:
-                start_yidx = 0
-            else:
-                start_yidx = int(np.sum(cells_list[1][0, :j, 0])) - offset * (2 * j)
-            if j == (ndom_list[1] - 1):
-                end_yidx = cells_total_list[1]
-            else:
-                end_yidx = int(np.sum(cells_list[1][0, :j+1, 0])) - offset * (2 * j)
+            start_yidx = np.sum(cells_list[1][0, :j, 0]) - added_bound[1][j][0]
+            end_yidx = np.sum(cells_list[1][0, :j+1, 0]) + added_bound[1][j][1]
 
         # z-direction
         if ndim == 3:
-            if k == 0:
-                start_zidx = 0
-            else:
-                start_zidx = int(np.sum(cells_list[2][0, 0, :k])) - offset * (2 * k)
-            if k == (ndom_list[2] - 1):
-                end_zidx = cells_total_list[2]
-            else:
-                end_zidx = int(np.sum(cells_list[2][0, 0, :k+1])) - offset * (2 * k)
+            start_zidx = np.sum(cells_list[2][0, 0, :k]) - added_bound[2][k][0]
+            end_zidx = np.sum(cells_list[2][0, 0, :k+1]) + added_bound[2][k][1]
 
         if ndim == 1:
             data_decomp[i][j][k] = data_single[start_xidx:end_xidx, :]
@@ -264,8 +211,7 @@ def load_info_domain(meshdir):
                 overlap = int(val)
 
     assert all([ndom >= 1 for ndom in ndom_list])
-    assert overlap >= 2  # TODO: adjust when non-overlapping implemented
-    assert overlap % 2 == 0  # must be even for now
+    assert overlap > 1  # TODO: adjust when non-overlapping implemented
 
     return ndom_list, overlap
 

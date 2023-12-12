@@ -1,6 +1,7 @@
 import os
 import subprocess
 from argparse import ArgumentParser, RawTextHelpFormatter
+from math import floor
 
 import numpy as np
 
@@ -15,28 +16,37 @@ def prep_dim(N, ndom, bounds):
     return d, N_dom
 
 
-def prep_dom_dim(dom_idx, ndom, N_dom, offset, bounds, d):
+def prep_dom_dim(ndom, N_dom, overlap, bounds, d):
 
-    # cells
-    n = N_dom[dom_idx]
-    if ndom > 1:
-        if (dom_idx == 0) or (dom_idx == (ndom - 1)):
-            n += offset
+    # cells that need to be distributed into overlap regions
+    tot_overlap = overlap * (ndom - 1)
+    added = floor(tot_overlap / ndom)
+    extra = tot_overlap % ndom
+
+    # cell counts for each domain after adding overlap
+    added_bound = [[0, 0] for _ in range(ndom)]
+    N_dom_overlap = [N for N in N_dom]
+    for dom_idx in range(ndom):
+        to_add = added
+        if dom_idx >= (ndom - extra):
+            to_add += 1
+        N_dom_overlap[dom_idx] += to_add
+
+        if dom_idx == 0:
+            added_bound[dom_idx][0] = 0
+            added_bound[dom_idx][1] = added
         else:
-            n += 2 * offset
+            added_bound[dom_idx][0] = overlap - added_bound[dom_idx-1][1]
+            added_bound[dom_idx][1] = to_add - added_bound[dom_idx][0]
 
-    # bounds
-    bound = [None, None]
-    if dom_idx == 0:
-        bound[0] = bounds[0]
-    else:
-        bound[0] = bounds[0] + (sum(N_dom[:dom_idx]) - offset) * d
-    if (dom_idx == ndom - 1):
-        bound[1] = bounds[1]
-    else:
-        bound[1] = bounds[0] + (sum(N_dom[:dom_idx+1]) + offset) * d
+    # subdomain bounds
+    bound = [[None, None] for _ in range(ndom)]
+    for dom_idx in range(ndom):
 
-    return n, bound
+        bound[dom_idx][0] = bounds[0] + (sum(N_dom[:dom_idx]) - added_bound[dom_idx][0]) * d
+        bound[dom_idx][1] = bounds[0] + (sum(N_dom[:dom_idx+1]) + added_bound[dom_idx][1]) * d
+
+    return N_dom_overlap, bound
 
 
 def get_linear_index(numdoms_list, i, j, k):
@@ -75,10 +85,7 @@ def main(
         assert bounds_list[2*dim+1] > bounds_list[2*dim]
         assert numdoms_list[ndim] > 0
     assert overlap >= 0
-    assert int(overlap/2) == (overlap / 2), "Overlap must be even for now (FIX)"
     # TODO: permit periodic domains
-
-    offset = int(overlap / 2)
 
     # domain dimensions
     dx_list = [None for _ in range(ndim)]
@@ -92,8 +99,6 @@ def main(
 
     # subdomain dimensions
     dom_grid_idxs = [None for _ in range(numdoms)]
-    numcells_sub_list = [[None for _ in range(ndim)] for _ in range(numdoms)]
-    bounds_sub_list = [[None for _ in range(2*ndim)] for _ in range(numdoms)]
     for dom_idx in range(numdoms):
         # gridded indices
         dom_grid_idxs[dom_idx] = [
@@ -102,26 +107,25 @@ def main(
             int(dom_idx / (numdoms_list[0] * numdoms_list[1])),
         ]
 
-        for dim in range(ndim):
-            numcells_sub_list[dom_idx][dim], bounds_sub_list[dom_idx][2*dim:2*dim+1] = prep_dom_dim(
-                dom_grid_idxs[dom_idx][dim],
-                numdoms_list[dim],
-                ncells_dom_list[dim],
-                offset,
-                bounds_list[2*dim:2*dim+2],
-                dx_list[dim],
-            )
+    numcells_sub_list = [[1 for _ in range(numdoms_list[dim])] for dim in range(3)]
+    bounds_sub_list = [None for _ in range(ndim)]
+    for dim in range(ndim):
+        numcells_sub_list[dim], bounds_sub_list[dim] = prep_dom_dim(
+            numdoms_list[dim],
+            ncells_dom_list[dim],
+            overlap,
+            bounds_list[2*dim:2*dim+2],
+            dx_list[dim],
+        )
 
     # linear subdomain index
     for dom_idx in range(numdoms):
 
         if stdout:
-            print("Domain " + str(dom_idx))
-
-        if stdout:
-            print("Cells: " + " x ".join(map(str, numcells_sub_list[dom_idx])))
+            print(f"Domain {dom_idx}")
+            print("Cells: " + " x ".join(map(str, [numcells_sub_list[dim][dom_grid_idxs[dom_idx][dim]] for dim in range(ndim)])))
             for dim in range(ndim):
-                print(["x", "y", "z"][dim] + f"-bounds: ({bounds_sub_list[dom_idx][2*dim]}, {bounds_sub_list[dom_idx][2*dim+1]})")
+                print(["x", "y", "z"][dim] + f"-bounds: {bounds_sub_list[dim][dom_grid_idxs[dom_idx][dim]]}")
 
         # subdomain mesh subdirectory
         outdir_sub = os.path.join(outdir, "domain_" + str(dom_idx))
@@ -132,30 +136,33 @@ def main(
 
         # command line execution
         arg_tuple = ("python3", mesh_script,)
-        arg_tuple += ("-n",) + tuple([str(val) for val in numcells_sub_list[dom_idx]])
+        arg_tuple += ("-n",) + tuple([str(numcells_sub_list[dim][dom_grid_idxs[dom_idx][dim]]) for dim in range(ndim)])
         arg_tuple += ("--outDir", outdir_sub,)
         arg_tuple += ("--stencilsize", str(stencilsize),)
-        arg_tuple += ("--bounds",) + tuple([str(val) for val in bounds_sub_list[dom_idx][:2*ndim]])
+        blep = [[str(bounds_sub_list[dim][dom_grid_idxs[dom_idx][dim]][bound]) for bound in range(2)] for dim in range(ndim)]
+        arg_tuple += ("--bounds",) + tuple(sum([[str(bounds_sub_list[dim][dom_grid_idxs[dom_idx][dim]][bound]) for bound in range(2)] for dim in range(ndim)], []))
         popen  = subprocess.Popen(arg_tuple, stdout=subprocess.PIPE); popen.wait()
 
         # load generated connectivity
         connect = np.loadtxt(os.path.join(outdir_sub, "connectivity.dat"), dtype=np.int32)[:, 1:]
 
-        # write neighbor subdomain stencil connectivity
         i = dom_grid_idxs[dom_idx][0]
         j = dom_grid_idxs[dom_idx][1]
         k = dom_grid_idxs[dom_idx][2]
+
+        # write neighbor subdomain stencil connectivity
         with open(os.path.join(outdir_sub, "connectivity_neighbor.dat"), "w") as f:
-            ncells = np.prod(numcells_sub_list[dom_idx])
+            ncells = np.prod([numcells_sub_list[dim][curr_idx] for dim, curr_idx in zip(range(3), [i, j, k])])
             for cell_idx in range(ncells):
                 f.write(f"{cell_idx:8d}")
 
                 stencil_gids = connect[cell_idx, :]
-                x_idx = cell_idx % numcells_sub_list[dom_idx][0]
+
+                x_idx = cell_idx % numcells_sub_list[0][i]
                 if ndim > 1:
-                    y_idx = int(cell_idx / numcells_sub_list[dom_idx][0])
+                    y_idx = int(cell_idx / numcells_sub_list[0][i])
                 if ndim == 3:
-                    z_idx = int(cell_idx / (numcells_sub_list[dom_idx][0] * numcells_sub_list[dom_idx][1]))
+                    z_idx = int(cell_idx / (numcells_sub_list[0][i] * numcells_sub_list[1][j]))
 
 
                 for stencil_idx in range(int((stencilsize - 1) / 2)):
@@ -169,32 +176,31 @@ def main(
                         if stencil_gid == -1:
                             # left subdomain
                             if (axis_idx == 0) and (i != 0):
-                                numcells_list_neigh = numcells_sub_list[get_linear_index(numdoms_list, i-1, j, k)]
+                                numcells_list_neigh = [numcells_sub_list[dim][neigh_idx] for dim, neigh_idx in zip(range(3), [i-1, j, k])]
                                 dist = x_idx
                                 neigh_gid = (numcells_list_neigh[0] * (y_idx + 1)) - overlap - stencil_idx + dist - 1
                             # right subdomain (1D)
                             if ndim == 1:
                                 if (axis_idx == 1) and (i != numdoms_list[0] - 1):
-                                    numcells_list_neigh = numcells_sub_list[get_linear_index(numdoms_list, i-1, j, k)]
-                                    dist = numcells_list_neigh[0] - x_idx - 1
+                                    dist = numcells_sub_list[0][i] - x_idx - 1
                                     neigh_gid = overlap + stencil_idx - dist
 
                             if ndim > 1:
                                 # front boundary
                                 if (axis_idx == 1) and (j != numdoms_list[1] - 1):
-                                    numcells_list_neigh = numcells_sub_list[get_linear_index(numdoms_list, i, j+1, k)]
-                                    dist = numcells_list_neigh[1] - y_idx - 1
+                                    numcells_list_neigh = [numcells_sub_list[dim][neigh_idx] for dim, neigh_idx in zip(range(3), [i, j+1, k])]
+                                    dist = numcells_sub_list[1][j] - y_idx - 1
                                     neigh_gid = (overlap + stencil_idx - dist) * numcells_list_neigh[0] + x_idx
 
                                 # right boundary (2D)
                                 if (axis_idx == 2) and (i != numdoms_list[0] - 1):
-                                    numcells_list_neigh = numcells_sub_list[get_linear_index(numdoms_list, i+1, j, k)]
-                                    dist = numcells_list_neigh[0] - x_idx - 1
+                                    numcells_list_neigh = [numcells_sub_list[dim][neigh_idx] for dim, neigh_idx in zip(range(3), [i+1, j, k])]
+                                    dist = numcells_sub_list[0][i] - x_idx - 1
                                     neigh_gid = (numcells_list_neigh[0] * y_idx) + overlap + stencil_idx - dist
 
                                 # back boundary
                                 if (axis_idx == 3) and (j != 0):
-                                    numcells_list_neigh = numcells_sub_list[get_linear_index(numdoms_list, i, j-1, k)]
+                                    numcells_list_neigh = [numcells_sub_list[dim][neigh_idx] for dim, neigh_idx in zip(range(3), [i, j-1, k])]
                                     dist = y_idx
                                     neigh_gid = (numcells_list_neigh[1] - 1 - overlap - stencil_idx + dist) * numcells_list_neigh[0] + x_idx
 
