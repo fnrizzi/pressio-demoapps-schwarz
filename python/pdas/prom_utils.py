@@ -1,5 +1,4 @@
 import os
-import struct
 from math import floor
 
 import numpy as np
@@ -59,14 +58,14 @@ def normalize(data_in, normvec=None, method=None):
 
 def calc_pod_single(
     data_in,
-    centervec=None,
+    centervec_in=None,
     center_method=None,
-    normvec=None,
+    normvec_in=None,
     norm_method=None,
     nmodes=None,
 ):
-    assert (centervec is not None) or (center_method is not None)
-    assert (normvec is not None) or (norm_method is not None)
+    assert (centervec_in is not None) or (center_method is not None)
+    assert (normvec_in is not None) or (norm_method is not None)
 
     # flatten spatial dimension (I/O is column-major)
     dim = data_in.ndim - 2
@@ -76,8 +75,8 @@ def calc_pod_single(
         raise ValueError(f"Unsupported dimension: {dim}")
 
     # center, normalize data
-    data_proc, centervec = center(data, centervec=centervec, method=center_method)
-    data_proc, normvec = normalize(data_proc, normvec=normvec, method=norm_method)
+    data_proc, centervec = center(data, centervec=centervec_in, method=center_method)
+    data_proc, normvec = normalize(data_proc, normvec=normvec_in, method=norm_method)
 
     # TODO: could do scalar POD here
     # flatten variable dimensions
@@ -110,9 +109,9 @@ def gen_pod_bases(
     idx_start=0,
     idx_end=None,
     idx_skip=1,
-    centervec=None,
+    centervec_in=None,
     center_method=None,
-    normvec=None,
+    normvec_in=None,
     norm_method=None,
     nmodes=None,
 ):
@@ -166,15 +165,20 @@ def gen_pod_bases(
             assert (meshlist_decomp is None) or (meshdir_decomp is None)
 
     ndata_out = len(datalist)
+    if centervec_in is None:
+        centervec_in = [None for _ in range(ndata_out)]
+    if normvec_in is None:
+        normvec_in = [None for _ in range(ndata_out)]
+
     print(f"Writing basis to {outdir}")
     for data_idx, data in enumerate(datalist):
 
         # compute basis and feature scaling vectors
         basis, svals, centervec, normvec = calc_pod_single(
             data,
-            centervec=centervec,
+            centervec_in=centervec_in[data_idx],
             center_method=center_method,
-            normvec=normvec,
+            normvec_in=normvec_in[data_idx],
             norm_method=norm_method,
             nmodes=nmodes,
         )
