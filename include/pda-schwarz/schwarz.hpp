@@ -116,6 +116,28 @@ private:
         }
     }
 
+    // void build_neighbor_connectivity()
+    // {
+    //     const auto & tiling = *m_tiling;
+        
+    //     std::vector<std::vector<std::vector<std::vector<int>>>> global_to_stencil_map_sub;
+        
+    //     global_to_stencil_map_sub.resize(tiling.countX());
+    //     for (int i = 0; i < tiling.countX(); ++i) {
+    //         global_to_stencil_map_sub[i].resize(tiling.countY());
+    //         for (int j = 0; j < tiling.countY(); ++j) {
+    //             global_to_stencil_map_sub[i][j].resize(tiling.countZ());
+    //             for (int k = 0; k < tiling.countZ(); ++k) {
+    //                 int dom_idx = i + j * tiling.countX() + k * tiling.countX() * tiling.countY();
+    //                 const auto & meshFullObj = m_subdomainVec[dom_idx]->getFullMesh();
+    //                 global_to_stencil_map_sub[i][j][k].resize();
+                    
+    //             }
+    //         }
+    //     }
+
+    // }
+
     // determines whether LOCAL neighbor orientation indices correspond to the same neighbors
     // deals with weird ordering difference in 1D
     bool is_neighbor_pair(int id1, int id2)
@@ -171,7 +193,7 @@ private:
                     continue;  // not a Schwarz BC
                 }
 
-                const auto & neighMeshObj = m_subdomainVec[neighDomIdx]->getMesh();
+                const auto & neighMeshObj = m_subdomainVec[neighDomIdx]->getMeshStencil();
                 const auto & neighNeighborGraph = m_subdomainVec[neighDomIdx]->getNeighborGraph();
                 const auto & neighRowsBd = neighMeshObj.graphRowsOfCellsNearBd();
 
@@ -201,7 +223,7 @@ private:
     {
         const auto & tiling = *m_tiling;
         const auto & exchDomIdVec = tiling.exchDomIdVec();
-        const auto * state = m_subdomainVec[domIdx]->getState();
+        const auto * state = m_subdomainVec[domIdx]->getStateStencil();
 
         for (auto neighIdx = 0; neighIdx < exchDomIdVec[domIdx].size(); ++neighIdx) {
 
@@ -230,7 +252,7 @@ private:
         m_ghostGraphVec.resize(tiling.count());
         for (int domIdx = 0; domIdx < tiling.count(); ++domIdx) {
 
-            const auto & meshObj = m_subdomainVec[domIdx]->getMesh();
+            const auto & meshObj = m_subdomainVec[domIdx]->getMeshStencil();
             const auto & neighborGraph = m_subdomainVec[domIdx]->getNeighborGraph();
             const auto & rowsBd = meshObj.graphRowsOfCellsNearBd();
             const auto stencilSize1D = (meshObj.stencilSize() - 1) / 2;
@@ -379,7 +401,7 @@ public:
                     // important to do this before saving history, as stateHistVec still has last convergence loop's state
                     // NOTE: this is always computed on the full-order state
                     if (innerStep == (m_controlItersVec[domIdx] - 1)) {
-                        convergeVals[domIdx] = calcConvergence(*m_subdomainVec[domIdx]->getState(),
+                        convergeVals[domIdx] = calcConvergence(*m_subdomainVec[domIdx]->getStateStencil(),
                             m_subdomainVec[domIdx]->getLastStateInHistory()/*m_stateHistVec.back()*/);
                     }
 

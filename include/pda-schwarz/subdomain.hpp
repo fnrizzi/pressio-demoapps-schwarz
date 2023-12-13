@@ -34,10 +34,11 @@ public:
     virtual void storeStateHistory(const int) = 0;
     virtual void resetStateFromHistory() = 0;
     virtual void updateFullState() = 0;
-    virtual const mesh_t & getMesh() const = 0;
+    virtual const mesh_t & getMeshStencil() const = 0;
+    virtual const mesh_t & getMeshFull() const = 0;
     virtual const graph_t & getNeighborGraph() const = 0;
     virtual int getDofPerCell() const = 0;
-    virtual state_t * getState() = 0;
+    virtual state_t * getStateStencil() = 0;
     virtual state_t * getStateFull() = 0;
     virtual state_t * getStateBCs() = 0;
     virtual void setBCPointer(pda::impl::GhostRelativeLocation, state_t * ) = 0;
@@ -107,10 +108,11 @@ public:
     }
 
     state_t * getStateBCs() final { return &m_stateBCs; }
-    state_t * getState() final { return &m_state; }
+    state_t * getStateStencil() final { return &m_state; }
     state_t * getStateFull() final { return &m_state; }
     int getDofPerCell() const final { return m_app->numDofPerCell(); }
-    const mesh_t & getMesh() const final { return *m_mesh; }
+    const mesh_t & getMeshStencil() const final { return *m_mesh; }
+    const mesh_t & getMeshFull() const final { return *m_mesh; }
     const graph_t & getNeighborGraph() const final { return *m_neighborGraph; }
 
     void init_bc_state()
@@ -238,10 +240,11 @@ public:
     }
 
     state_t * getStateBCs() final { return &m_stateBCs; }
-    state_t * getState() final { return &m_state; }
+    state_t * getStateStencil() final { return &m_state; }
     state_t * getStateFull() final { return &m_state; }
     int getDofPerCell() const final { return m_app->numDofPerCell(); }
-    const mesh_t & getMesh() const final { return *m_mesh; }
+    const mesh_t & getMeshStencil() const final { return *m_mesh; }
+    const mesh_t & getMeshFull() const final { return *m_mesh; }
     const graph_t & getNeighborGraph() const final { return *m_neighborGraph; }
 
     void init_bc_state()
@@ -459,13 +462,14 @@ public:
     }
 
     state_t * getStateBCs() final { return &m_stateBCs; }
-    state_t * getState() final { return &m_stateStencil; }
+    state_t * getStateStencil() final { return &m_stateStencil; }
     state_t * getStateFull() final {
         m_trialSpaceFull.mapFromReducedState(m_stateReduced, m_stateFull);
         return &m_stateFull;
     }
     int getDofPerCell() const final { return m_appHyper->numDofPerCell(); }
-    const mesh_t & getMesh() const final { return *m_meshHyper; }
+    const mesh_t & getMeshStencil() const final { return *m_meshHyper; }
+    const mesh_t & getMeshFull() const final { return *m_meshFull; }
     const graph_t & getNeighborGraph() const final { return *m_neighborGraph; }
 
     void init_bc_state()
