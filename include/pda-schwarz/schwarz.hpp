@@ -13,6 +13,9 @@
 #include <fstream>
 #include <sstream>
 #include <chrono>
+#include <sys/stat.h>
+#include <unistd.h>
+#include <iomanip>
 
 
 namespace pdaschwarz{
@@ -66,6 +69,10 @@ public:
     {
         m_dofPerCell = m_subdomainVec[0]->getDofPerCell();
 
+        // set up connectivity for neighboring subdomains
+        // only relevant if at least one domain is a hyper-reduction subdomain
+        calc_hyper_connectivity();
+
         setup_controller(dtVec);
         for (int domIdx = 0; domIdx < (int) m_subdomainVec.size(); ++domIdx) {
             m_subdomainVec[domIdx]->allocateStorageForHistory(m_controlItersVec[domIdx]);
@@ -116,27 +123,345 @@ private:
         }
     }
 
-    // void build_neighbor_connectivity()
-    // {
-    //     const auto & tiling = *m_tiling;
-        
-    //     std::vector<std::vector<std::vector<std::vector<int>>>> global_to_stencil_map_sub;
-        
-    //     global_to_stencil_map_sub.resize(tiling.countX());
-    //     for (int i = 0; i < tiling.countX(); ++i) {
-    //         global_to_stencil_map_sub[i].resize(tiling.countY());
-    //         for (int j = 0; j < tiling.countY(); ++j) {
-    //             global_to_stencil_map_sub[i][j].resize(tiling.countZ());
-    //             for (int k = 0; k < tiling.countZ(); ++k) {
-    //                 int dom_idx = i + j * tiling.countX() + k * tiling.countX() * tiling.countY();
-    //                 const auto & meshFullObj = m_subdomainVec[dom_idx]->getFullMesh();
-    //                 global_to_stencil_map_sub[i][j][k].resize();
-                    
-    //             }
-    //         }
-    //     }
+    int grid_to_linear_idx(int i, int j, int k) {
+        const auto & tiling = *m_tiling;
+        return i + j * tiling.countX() + k * tiling.countX() * tiling.countY();
+    }
 
-    // }
+    auto linear_to_grid_idx(int domIdx) {
+        const auto & tiling = *m_tiling;
+        int i = domIdx % tiling.countX();
+        int j = domIdx / tiling.countX();
+        int k = domIdx / (tiling.countX() * tiling.countY());
+        return std::tuple(i, j, k);
+    }
+
+    void calc_hyper_connectivity()
+    {
+        const auto & tiling = *m_tiling;
+        int overlap = tiling.overlap();
+
+        // various storage required
+        std::vector<std::vector<int>> stencil_gids;
+        std::vector<graph_t> neigh_gids;
+        std::vector<std::vector<int>> global_to_stencil_map;
+        stencil_gids.resize(tiling.count());
+        neigh_gids.resize(tiling.count());
+        global_to_stencil_map.resize(tiling.count());
+
+        // get stencil GIDs from each subdomain
+        for (int domIdx = 0; domIdx < tiling.count(); ++domIdx) {
+            auto [i, j, k] = linear_to_grid_idx(domIdx);
+
+            auto & meshFull = m_subdomainVec[domIdx]->getMeshFull();
+            auto * sampGids = m_subdomainVec[domIdx]->getSampleGids();
+            const auto & graphFull = meshFull.graph();
+
+            for (int sampIdx = 0; sampIdx < sampGids->rows(); ++sampIdx) {
+                int samp_gid = (*sampGids)(sampIdx);
+                auto graph_row = graphFull.row(samp_gid);
+                for (int stencilIdx = 0; stencilIdx < graph_row.cols(); ++stencilIdx) {
+                    int stencil_gid = graph_row(0, stencilIdx);
+                    if (stencil_gid != -1) {
+                        stencil_gids[domIdx].emplace_back(stencil_gid);
+                    }
+                }
+            }
+        }
+
+        // get stencil GIDs that are required from neighboring domain
+        for (int domIdx = 0; domIdx < tiling.count(); ++domIdx) {
+            auto [i, j, k] = linear_to_grid_idx(domIdx);
+
+            const auto & meshFull = m_subdomainVec[domIdx]->getMeshFull();
+            std::array<int, 3> fullMeshDims = m_subdomainVec[domIdx]->getFullMeshDims();
+            const auto * sampGids = m_subdomainVec[domIdx]->getSampleGids();
+            const auto & graphFull = meshFull.graph();
+
+            pda::resize(neigh_gids[domIdx], sampGids->rows(), graphFull.cols());
+            neigh_gids[domIdx].setConstant(-1);
+
+            int x_idx = 0;
+            int y_idx = 0;
+            int z_idx = 0;
+            int dist, neighIdx;
+            for (int sampIdx = 0; sampIdx < sampGids->rows(); ++sampIdx) {
+                int samp_gid = (*sampGids)(sampIdx);
+                auto graph_row = graphFull.row(samp_gid);
+                neigh_gids[domIdx](sampIdx, 0) = samp_gid;
+
+                x_idx = samp_gid % fullMeshDims[0];
+                if (tiling.dim() > 1) {
+                    y_idx = samp_gid / fullMeshDims[0];
+                }
+                if (tiling.dim() == 3) {
+                    z_idx = samp_gid / (fullMeshDims[0] * fullMeshDims[1]);
+                }
+
+                int nstencil_1d = (graph_row.cols() - 1) / (tiling.dim() * 2);
+                for (int axisIdx = 0; axisIdx < tiling.dim() * 2; ++axisIdx) {
+                    for (int stencilIdx = 0; stencilIdx < nstencil_1d; ++stencilIdx) {
+
+                        int connect_idx = stencilIdx * tiling.dim() * 2 + axisIdx + 1;
+                        int stencil_gid = graph_row(0, connect_idx);
+
+                        if (stencil_gid == -1) {
+                            int neigh_gid = -1;
+                            int i_neigh = i;
+                            int j_neigh = j;
+                            int k_neigh = k;
+
+                            // left boundary
+                            if ((axisIdx == 0) && (i != 0)) {
+                                i_neigh -= 1;
+                                neighIdx = grid_to_linear_idx(i-1, j, k);
+                                auto dims_neigh = m_subdomainVec[neighIdx]->getFullMeshDims();
+                                dist = x_idx;
+                                neigh_gid = (dims_neigh[0] * (y_idx + 1)) - overlap - stencilIdx + dist - 1;
+                            }
+
+                            // right boundary (1D)
+                            if (tiling.dim() == 1) {
+                                if ((axisIdx == 1) && (i != tiling.countX() - 1)) {
+                                    i_neigh += 1;
+                                    neighIdx = grid_to_linear_idx(i+1, j, k);
+                                    auto dims_neigh = m_subdomainVec[neighIdx]->getFullMeshDims();
+                                    dist = dims_neigh[0] - x_idx - 1;
+                                    neigh_gid =  overlap + stencilIdx - dist;
+                                }
+                            }
+
+                            if (tiling.dim() > 1) {
+
+                                // front boundary
+                                if ((axisIdx == 1) && (j != tiling.countY() - 1)) {
+                                    j_neigh += 1;
+                                    neighIdx = grid_to_linear_idx(i, j+1, k);
+                                    auto dims_neigh = m_subdomainVec[neighIdx]->getFullMeshDims();
+                                    dist = dims_neigh[1] - y_idx - 1;
+                                    neigh_gid = (overlap + stencilIdx - dist) * dims_neigh[0] + x_idx;
+                                }
+
+                                // right boundary (2D)
+                                if ((axisIdx == 2) && (i != tiling.countX() - 1)) {
+                                    i_neigh += 1;
+                                    neighIdx = grid_to_linear_idx(i+1, j, k);
+                                    auto dims_neigh = m_subdomainVec[neighIdx]->getFullMeshDims();
+                                    dist = dims_neigh[0] - x_idx - 1;
+                                    neigh_gid = (dims_neigh[0] * y_idx) + overlap + stencilIdx - dist;
+                                }
+
+                                // back boundary
+                                if ((axisIdx == 3) && (j != 0)) {
+                                    j_neigh -= 1;
+                                    neighIdx = grid_to_linear_idx(i, j-1, k);
+                                    auto dims_neigh = m_subdomainVec[neighIdx]->getFullMeshDims();
+                                    dist = y_idx;
+                                    neigh_gid = (dims_neigh[1] - 1 - overlap - stencilIdx + dist) * dims_neigh[0] + x_idx;
+                                }
+                            }
+
+                            if (tiling.dim() == 3) {
+                                throw std::runtime_error("3D not implemented yet");
+                            }
+
+                            if (neigh_gid != -1) {
+                                neigh_gids[domIdx](sampIdx, connect_idx) = neigh_gid;
+                                stencil_gids[neighIdx].emplace_back(neigh_gid);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // sort and store stencil GIDs
+        for (int domIdx = 0; domIdx < tiling.count(); ++domIdx) {
+            auto [i, j, k] = linear_to_grid_idx(domIdx);
+            std::sort( stencil_gids[domIdx].begin(), stencil_gids[domIdx].end() );
+            stencil_gids[domIdx].erase(
+                std::unique(
+                    stencil_gids[domIdx].begin(),
+                    stencil_gids[domIdx].end()
+                ),
+                stencil_gids[domIdx].end()
+            );
+
+            m_subdomainVec[domIdx]->setStencilGids(stencil_gids[domIdx]);
+
+        }
+
+        // generate global-to-stencil map
+        for (int domIdx = 0; domIdx < tiling.count(); ++domIdx) {
+            auto [i, j, k] = linear_to_grid_idx(domIdx);
+            const auto & meshFull = m_subdomainVec[domIdx]->getMeshFull();
+
+            global_to_stencil_map[domIdx].resize(meshFull.sampleMeshSize(), -1);
+            int stencilIdx = 0;
+            for (int cellIdx = 0; cellIdx < meshFull.sampleMeshSize(); ++cellIdx) {
+                if (std::find(stencil_gids[domIdx].begin(), stencil_gids[domIdx].end(), cellIdx) != stencil_gids[domIdx].end()) {
+                    global_to_stencil_map[domIdx][cellIdx] = stencilIdx;
+                    stencilIdx++;
+                }
+            }
+        }
+
+        // silly, but have to write everything to disk
+        // mesh class HAS to be instantiated from a mesh directory
+        // NOTE: THIS IS NOT PORTABLE, ONLY FOR UNIX
+        // TODO: figure out why std::filesystem won't link properly
+        std::string tempdir = "./temp_" + std::to_string(::getpid());
+        ::mkdir(tempdir.c_str(), 0777);
+
+        // write coordinates and connectivity
+        for (int domIdx = 0; domIdx < tiling.count(); ++domIdx) {
+            // make subdirectory
+            std::string subdom_dir = tempdir + "/domain_" + std::to_string(domIdx);
+            ::mkdir(subdom_dir.c_str(), 0777);
+
+            auto [i, j, k] = linear_to_grid_idx(domIdx);
+            const auto & meshFull = m_subdomainVec[domIdx]->getMeshFull();
+            const auto * sampGids = m_subdomainVec[domIdx]->getSampleGids();
+            const auto & graphFull = meshFull.graph();
+
+            // connectivity
+            std::ofstream connect_hyper_file(subdom_dir + "/connectivity.dat");
+            for (int sampIdx = 0; sampIdx < sampGids->rows(); ++sampIdx) {
+                int samp_gid = (*sampGids)(sampIdx);
+                connect_hyper_file << std::to_string(global_to_stencil_map[domIdx][samp_gid]);
+                for (int stencilIdx = 1; stencilIdx < graphFull.cols(); ++stencilIdx) {
+                    int stencil_gid = graphFull(samp_gid, stencilIdx);
+                    if (stencil_gid == -1) {
+                        connect_hyper_file << " " + std::to_string(-1);
+                    }
+                    else {
+                        connect_hyper_file << " " + std::to_string(global_to_stencil_map[domIdx][stencil_gid]);
+                    }
+                }
+                connect_hyper_file << "\n";
+            }
+            connect_hyper_file.close();
+
+            // coordinates
+            std::ofstream coords_file(subdom_dir + "/coordinates.dat");
+            auto & xcoords = meshFull.viewX();
+            auto & ycoords = meshFull.viewY();
+            auto & zcoords = meshFull.viewZ();
+            for (int stencilIdx = 0; stencilIdx < stencil_gids[domIdx].size(); ++stencilIdx) {
+                int stencil_gid = stencil_gids[domIdx][stencilIdx];
+                coords_file << std::to_string(stencilIdx);
+
+                coords_file << " " << std::fixed << std::setprecision(14) << xcoords(stencil_gid);
+                if (tiling.dim() > 1) {
+                    coords_file << " " << std::fixed << std::setprecision(14) << ycoords(stencil_gid);
+                }
+                if (tiling.dim() == 3) {
+                    coords_file << " " << std::fixed << std::setprecision(14) << zcoords(stencil_gid);
+                }
+                coords_file << "\n";
+            }
+            coords_file.close();
+
+            // info
+            std::ofstream info_file(subdom_dir + "/info.dat");
+            info_file << "dim " + std::to_string(tiling.dim()) + "\n";
+            auto xmin = xcoords.minCoeff() - meshFull.dx() / 2.0;
+            auto xmax = xcoords.maxCoeff() + meshFull.dx() / 2.0;
+            info_file << "xMin " << std::fixed << std::setprecision(14) << xmin << "\n";
+            info_file << "xMax " << std::fixed << std::setprecision(14) << xmax << "\n";
+            if (tiling.dim() > 1) {
+                auto ymin = ycoords.minCoeff() - meshFull.dy() / 2.0;
+                auto ymax = ycoords.maxCoeff() + meshFull.dy() / 2.0;
+                info_file << "yMin " << std::fixed << std::setprecision(14) << ymin << "\n";
+                info_file << "yMax " << std::fixed << std::setprecision(14) << ymax << "\n";
+            }
+            if (tiling.dim() == 3) {
+                auto zmin = zcoords.minCoeff() - meshFull.dz() / 2.0;
+                auto zmax = zcoords.maxCoeff() + meshFull.dz() / 2.0;
+                info_file << "zMin " << std::fixed << std::setprecision(14) << zmin << "\n";
+                info_file << "zMax " << std::fixed << std::setprecision(14) << zmax << "\n";
+            }
+            info_file << "dx " << std::fixed << std::setprecision(14) << meshFull.dx() << "\n";
+            if (tiling.dim() > 1) {
+                info_file << "dy " << std::fixed << std::setprecision(14) << meshFull.dy() << "\n";
+            }
+            if (tiling.dim() == 3) {
+                info_file << "dz " << std::fixed << std::setprecision(14) << meshFull.dz() << "\n";
+            }
+            info_file << "sampleMeshSize " << sampGids->rows() << "\n";
+            info_file << "stencilMeshSize " << stencil_gids[domIdx].size() << "\n";
+            info_file << "stencilSize " << meshFull.stencilSize() << "\n";
+            info_file.close();
+
+            // generate sample mesh (noop for FOM/PROM)
+            m_subdomainVec[domIdx]->genHyperMesh(subdom_dir);
+
+            // generate neighbor connectivity
+            graph_t neighborGraph;
+            pda::resize(neighborGraph, sampGids->rows(), graphFull.cols());
+            for (int sampIdx = 0; sampIdx < sampGids->rows(); ++sampIdx) {
+                int samp_gid = (*sampGids)(sampIdx);
+                int stencil_gid = global_to_stencil_map[domIdx][samp_gid];
+                neighborGraph(sampIdx, 0) = stencil_gid;
+                for (int stencilIdx = 1; stencilIdx < graphFull.cols(); ++stencilIdx) {
+                    int neigh_gid = neigh_gids[domIdx](sampIdx, stencilIdx);
+                    int neigh_sid;
+                    if (neigh_gid == -1) {
+                        neigh_sid = -1;
+                    }
+                    else {
+                        int i_neigh = i;
+                        int j_neigh = j;
+                        int k_neigh = k;
+                        int remain = (stencilIdx - 1) % (tiling.dim() * 2);
+
+                        // left
+                        if (remain == 0) {
+                            i_neigh -= 1;
+                        }
+                        // right (1D)
+                        if ((tiling.dim() == 1) and (remain == 1)) {
+                            i_neigh += 1;
+                        }
+                        if (tiling.dim() > 1) {
+                            // front
+                            if (remain == 1) {
+                                j_neigh += 1;
+                            }
+                            // right
+                            if (remain == 2) {
+                                i_neigh += 1;
+                            }
+                            // back
+                            if (remain == 3) {
+                                j_neigh -= 1;
+                            }
+                        }
+                        if (tiling.dim() == 3) {
+                            // bottom
+                            if (remain == 4) {
+                                k_neigh -= 1;
+                            }
+                            // top
+                            if (remain == 5) {
+                                k_neigh += 1;
+                            }
+                        }
+                        int neighIdx = grid_to_linear_idx(i_neigh, j_neigh, k_neigh);
+                        neigh_sid = global_to_stencil_map[neighIdx][neigh_gid];
+                    }
+                    neighborGraph(sampIdx, stencilIdx) = neigh_sid;
+                }
+            }
+
+            m_subdomainVec[domIdx]->setNeighborGraph(neighborGraph);
+
+        }
+
+        // finally, delete temporary directory
+        ::rmdir(tempdir.c_str());
+
+    }
 
     // determines whether LOCAL neighbor orientation indices correspond to the same neighbors
     // deals with weird ordering difference in 1D
@@ -152,15 +477,15 @@ private:
             id1 = temp;
         }
 
-        if ((*m_tiling).dim() == 1) {
+        if (m_tiling->dim() == 1) {
             if ((id1 == 0) && (id2 == 1)) { return true; }
             else { return false; }
         }
-        else if ((*m_tiling).dim() >= 2) {
+        else if (m_tiling->dim() >= 2) {
             if ((id1 == 0) && (id2 == 2)) { return true; }
             else if ((id1 == 1) && (id2 == 3)) { return true; }
 
-            if ((*m_tiling).dim() == 3) {
+            if (m_tiling->dim() == 3) {
                 if ((id1 == 4) && (id2 == 5)) { return true; }
                 else { return false; }
             }

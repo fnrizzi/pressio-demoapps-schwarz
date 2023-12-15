@@ -22,12 +22,46 @@ namespace pls = pressio::linearsolvers;
 namespace prom = pressio::rom;
 namespace plspg = pressio::rom::lspg;
 
+template<class mesh_t>
+std::array<int, 3> calc_mesh_dims(const mesh_t & meshObj)
+{
+    // WARNING: this is only valid for full meshes
+    const auto dx = meshObj.dx();
+    const auto dy = meshObj.dy();
+    const auto dz = meshObj.dz();
+    const auto & xcoords = meshObj.viewX();
+    const auto & ycoords = meshObj.viewY();
+    const auto & zcoords = meshObj.viewZ();
+    const auto ndim = meshObj.dimensionality();
+
+    std::array<int, 3> meshdims = {0, 0, 0};
+
+    // number cells in x
+    auto xmin = xcoords.minCoeff();
+    auto xmax = xcoords.maxCoeff();
+    meshdims[0] = (xmax - xmin) / dx + 1;
+
+    if (ndim > 1) {
+        auto ymin = ycoords.minCoeff();
+        auto ymax = ycoords.maxCoeff();
+        meshdims[1] = (ymax - ymin) / dy + 1;
+    }
+    if (ndim == 3) {
+        auto zmin = zcoords.minCoeff();
+        auto zmax = zcoords.maxCoeff();
+        meshdims[2] = (zmax - zmin) / dz + 1;
+    }
+
+    return meshdims;
+}
+
 template<class mesh_type, class state_type>
 class SubdomainBase{
 public:
     using state_t = state_type;
     using mesh_t = mesh_type;
     using graph_t = typename mesh_t::graph_t;
+    using stencil_t  = decltype(create_cell_gids_vector_and_fill_from_ascii(std::declval<std::string>()));
 
     virtual void allocateStorageForHistory(const int) = 0;
     virtual void doStep(pode::StepStartAt<double>, pode::StepCount, pode::StepSize<double>) = 0;
@@ -36,6 +70,11 @@ public:
     virtual void updateFullState() = 0;
     virtual const mesh_t & getMeshStencil() const = 0;
     virtual const mesh_t & getMeshFull() const = 0;
+    virtual const std::array<int, 3> getFullMeshDims() const = 0;
+    virtual const stencil_t * getSampleGids() const = 0;
+    virtual void setStencilGids(std::vector<int>) = 0;
+    virtual void genHyperMesh(std::string &) = 0;
+    virtual void setNeighborGraph(graph_t &) = 0;
     virtual const graph_t & getNeighborGraph() const = 0;
     virtual int getDofPerCell() const = 0;
     virtual state_t * getStateStencil() = 0;
@@ -55,6 +94,8 @@ public:
     using graph_t = typename mesh_t::graph_t;
     using state_t = typename app_t::state_type;
     using jacob_t = typename app_t::jacobian_type;
+
+    using stencil_t  = decltype(create_cell_gids_vector_and_fill_from_ascii(std::declval<std::string>()));
 
     using stepper_t  =
         decltype(pressio::ode::create_implicit_stepper(pressio::ode::StepScheme(),
@@ -93,7 +134,13 @@ public:
     , m_linSolverObj(std::make_shared<linsolver_t>())
     , m_nonlinSolver(pressio::create_newton_solver(m_stepper, *m_linSolverObj))
     {
+        m_fullMeshDims = calc_mesh_dims(*m_mesh);
         init_bc_state();
+
+        pda::resize(m_sampleGids, m_mesh->sampleMeshSize());
+        for (int i = 0; i < m_mesh->sampleMeshSize(); ++i) {
+            m_sampleGids(i) = i;
+        }
 
         m_nonlinSolver.setStopTolerance(1e-5);
     }
@@ -113,7 +160,20 @@ public:
     int getDofPerCell() const final { return m_app->numDofPerCell(); }
     const mesh_t & getMeshStencil() const final { return *m_mesh; }
     const mesh_t & getMeshFull() const final { return *m_mesh; }
+    const std::array<int, 3> getFullMeshDims() const final { return m_fullMeshDims; }
+    const stencil_t * getSampleGids() const final { return &m_sampleGids; }
+    void setStencilGids(std::vector<int> gids_vec) final { /*noop*/ }
+    void genHyperMesh(std::string & subdom_dir) final { /*noop*/ }
     const graph_t & getNeighborGraph() const final { return *m_neighborGraph; }
+
+    void setNeighborGraph(graph_t & graph_in) {
+        pda::resize(m_neighborGraph2, graph_in.rows(), graph_in.cols());
+        for (int rowIdx = 0; rowIdx < graph_in.rows(); ++rowIdx) {
+            for (int colIdx = 0; colIdx < graph_in.cols(); ++colIdx) {
+                m_neighborGraph2(rowIdx, colIdx) = graph_in(rowIdx, colIdx);
+            }
+        }
+    }
 
     void init_bc_state()
     {
@@ -163,7 +223,10 @@ public:
 public:
     int m_domIdx;
     mesh_t const * m_mesh;
+    std::array<int, 3> m_fullMeshDims;
+    stencil_t m_sampleGids;
     graph_t const * m_neighborGraph;
+    graph_t m_neighborGraph2;
     std::shared_ptr<app_t> m_app;
     state_t m_state;
     state_t m_stateBCs;
@@ -184,6 +247,8 @@ class SubdomainROM: public SubdomainBase<mesh_t, typename app_type::state_type>
     using graph_t = typename mesh_t::graph_t;
     using scalar_t = typename app_t::scalar_type;
     using state_t  = typename app_t::state_type;
+
+    using stencil_t  = decltype(create_cell_gids_vector_and_fill_from_ascii(std::declval<std::string>()));
 
     using trans_t = decltype(read_vector_from_binary<scalar_t>(std::declval<std::string>()));
     using basis_t = decltype(read_matrix_from_binary<scalar_t>(std::declval<std::string>(), std::declval<int>()));
@@ -221,7 +286,13 @@ public:
     , m_trialSpace(prom::create_trial_column_subspace<state_t>(std::move(m_basis), std::move(m_trans), true))
     , m_stateReduced(m_trialSpace.createReducedState())
     {
+        m_fullMeshDims = calc_mesh_dims(*m_mesh);
         init_bc_state();
+
+        pda::resize(m_sampleGids, m_mesh->sampleMeshSize());
+        for (int i = 0; i < m_mesh->sampleMeshSize(); ++i) {
+            m_sampleGids(i) = i;
+        }
 
         // project initial conditions
         auto u = pressio::ops::clone(m_state);
@@ -245,7 +316,20 @@ public:
     int getDofPerCell() const final { return m_app->numDofPerCell(); }
     const mesh_t & getMeshStencil() const final { return *m_mesh; }
     const mesh_t & getMeshFull() const final { return *m_mesh; }
+    const std::array<int, 3> getFullMeshDims() const final { return m_fullMeshDims; }
+    const stencil_t * getSampleGids() const final { return &m_sampleGids; }
+    void setStencilGids(std::vector<int> gids_vec) final { /*noop*/ }
+    void genHyperMesh(std::string & subdom_dir) final { /*noop*/ }
     const graph_t & getNeighborGraph() const final { return *m_neighborGraph; }
+
+    void setNeighborGraph(graph_t & graph_in) {
+        pda::resize(m_neighborGraph2, graph_in.rows(), graph_in.cols());
+        for (int rowIdx = 0; rowIdx < graph_in.rows(); ++rowIdx) {
+            for (int colIdx = 0; colIdx < graph_in.cols(); ++colIdx) {
+                m_neighborGraph2(rowIdx, colIdx) = graph_in(rowIdx, colIdx);
+            }
+        }
+    }
 
     void init_bc_state()
     {
@@ -290,7 +374,10 @@ public:
 protected:
     int m_domIdx;
     mesh_t const * m_mesh;
+    std::array<int, 3> m_fullMeshDims;
+    stencil_t m_sampleGids;
     graph_t const * m_neighborGraph;
+    graph_t m_neighborGraph2;
     std::shared_ptr<app_t> m_app;
     state_t m_state;
     state_t m_stateBCs;
@@ -424,8 +511,9 @@ public:
             BCFunctor<mesh_t>(bcRight), BCFunctor<mesh_t>(bcBack),
             icflag, userParams)))
     , m_neighborGraph(&neighborGraph)
-    , m_stencilFile(meshPathHyper + "/stencil_mesh_gids.dat")
     , m_sampleFile(meshPathHyper + "/sample_mesh_gids.dat")
+    , m_stencilFile(meshPathHyper + "/stencil_mesh_gids.dat")
+    , m_sampleGids(create_cell_gids_vector_and_fill_from_ascii(m_sampleFile))
     , m_stencilGids(create_cell_gids_vector_and_fill_from_ascii(m_stencilFile))
     , m_nmodes(nmodes)
     , m_transFull(read_vector_from_binary<scalar_t>(transRoot + "_" + std::to_string(domainIndex) + ".bin"))
@@ -444,6 +532,8 @@ public:
         m_stateFull = m_appFull->initialCondition();
         m_stateReduced = m_trialSpaceHyper.createReducedState();
         init_bc_state();
+
+        m_fullMeshDims = calc_mesh_dims(*m_meshFull);
 
         // project initial conditions
         auto u = pressio::ops::clone(m_stateFull);
@@ -470,7 +560,31 @@ public:
     int getDofPerCell() const final { return m_appHyper->numDofPerCell(); }
     const mesh_t & getMeshStencil() const final { return *m_meshHyper; }
     const mesh_t & getMeshFull() const final { return *m_meshFull; }
+    const std::array<int, 3> getFullMeshDims() const final { return m_fullMeshDims; }
+    const stencil_t * getSampleGids() const final { return &m_sampleGids; }
     const graph_t & getNeighborGraph() const final { return *m_neighborGraph; }
+
+    void setStencilGids(std::vector<int> gids_vec) final {
+        pda::resize(m_stencilGids2, (int) gids_vec.size());
+        for (int stencilIdx = 0; stencilIdx < gids_vec.size(); ++stencilIdx) {
+            m_stencilGids2(stencilIdx) = gids_vec[stencilIdx];
+        }
+    }
+
+    void genHyperMesh(std::string & subdom_dir) final {
+
+        m_meshHyper2 = pda::load_cellcentered_uniform_mesh_eigen(subdom_dir);
+
+    }
+
+    void setNeighborGraph(graph_t & graph_in) {
+        pda::resize(m_neighborGraph2, graph_in.rows(), graph_in.cols());
+        for (int rowIdx = 0; rowIdx < graph_in.rows(); ++rowIdx) {
+            for (int colIdx = 0; colIdx < graph_in.cols(); ++colIdx) {
+                m_neighborGraph2(rowIdx, colIdx) = graph_in(rowIdx, colIdx);
+            }
+        }
+    }
 
     void init_bc_state()
     {
@@ -517,7 +631,10 @@ public:
     int m_domIdx;
     mesh_t const * m_meshFull;
     mesh_t const * m_meshHyper;
+    mesh_t m_meshHyper2;
+    std::array<int, 3> m_fullMeshDims;
     graph_t const * m_neighborGraph;
+    graph_t m_neighborGraph2;
     std::shared_ptr<app_t> m_appFull;
     std::shared_ptr<app_t> m_appHyper;
 
@@ -530,7 +647,9 @@ public:
 
     std::string m_stencilFile;
     std::string m_sampleFile;
+    stencil_t m_sampleGids;
     stencil_t m_stencilGids;
+    stencil_t m_stencilGids2;
 
     int m_nmodes;
     trans_t m_transFull;

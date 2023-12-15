@@ -67,7 +67,6 @@ def main(decompdir, sampdir, gidfile):
 
     # include stencil GIDs of ghost cells in other subdomains
     connect_samp_neigh = make_subdomain_list(ndom_list)
-    stencil_gids_neigh = make_subdomain_list(ndom_list, default=[])
     for dom_idx in range(ndomains):
         i = dom_idx % ndom_list[0]
         j = int(dom_idx / ndom_list[0])
@@ -155,7 +154,6 @@ def main(decompdir, sampdir, gidfile):
                                 pass
 
                         if neigh_gid != -1:
-                            stencil_gids_neigh[i][j][k].append(neigh_gid)
                             connect_samp_neigh[i][j][k][samp_idx, connect_idx] = neigh_gid
                             stencil_gids_sub[i_neigh][j_neigh][k_neigh] = np.unique(np.concatenate((stencil_gids_sub[i_neigh][j_neigh][k_neigh], [neigh_gid])))
 
@@ -206,7 +204,7 @@ def main(decompdir, sampdir, gidfile):
         connect_samp_local = np.zeros((nsamps, nstencil + 1), dtype=np.int32)
         for connect_idx in range(nsamps):
             connect_samp_local[connect_idx, 0] = global_to_stencil_map[samp_gids[connect_idx]]
-            for stencil_idx in range( nstencil):
+            for stencil_idx in range(nstencil):
                 stencil_gid = connect_samp[connect_idx, stencil_idx]
                 if stencil_gid == -1:
                     connect_samp_local[connect_idx, stencil_idx+1] = -1
@@ -267,7 +265,6 @@ def main(decompdir, sampdir, gidfile):
         # write neighboring stencil IDs
         with open(os.path.join(meshdir_sub, "connectivity_neighbor.dat"), "w") as f:
             for samp_idx in range(nsamps):
-                # if any(connect_samp_neigh[i][j][k][samp_idx, :] != -1):
                 stencil_id = global_to_stencil_map[samp_gids[samp_idx]]
                 f.write(f"{stencil_id:8d}")
                 for stencil_idx in range(nstencil):
