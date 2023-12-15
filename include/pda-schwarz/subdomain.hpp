@@ -4,6 +4,7 @@
 
 #include <string>
 #include <vector>
+#include <math.h>
 
 #include "pressio/ode_steppers_implicit.hpp"
 #include "pressio/rom_subspaces.hpp"
@@ -39,17 +40,17 @@ std::array<int, 3> calc_mesh_dims(const mesh_t & meshObj)
     // number cells in x
     auto xmin = xcoords.minCoeff();
     auto xmax = xcoords.maxCoeff();
-    meshdims[0] = (xmax - xmin) / dx + 1;
+    meshdims[0] = std::round((xmax - xmin) / dx) + 1;
 
     if (ndim > 1) {
         auto ymin = ycoords.minCoeff();
         auto ymax = ycoords.maxCoeff();
-        meshdims[1] = (ymax - ymin) / dy + 1;
+        meshdims[1] = std::round((ymax - ymin) / dy) + 1;
     }
     if (ndim == 3) {
         auto zmin = zcoords.minCoeff();
         auto zmax = zcoords.maxCoeff();
-        meshdims[2] = (zmax - zmin) / dz + 1;
+        meshdims[2] = std::round((zmax - zmin) / dz) + 1;
     }
 
     return meshdims;
@@ -77,6 +78,7 @@ public:
     virtual void setNeighborGraph(graph_t &) = 0;
     virtual const graph_t & getNeighborGraph() const = 0;
     virtual int getDofPerCell() const = 0;
+    virtual void finalize_subdomain() = 0;
     virtual state_t * getStateStencil() = 0;
     virtual state_t * getStateFull() = 0;
     virtual state_t * getStateBCs() = 0;
@@ -113,7 +115,6 @@ public:
     SubdomainFOM(
         const int domainIndex,
         const mesh_t & mesh,
-        const graph_t & neighborGraph,
         BCType bcLeft, BCType bcFront,
         BCType bcRight, BCType bcBack,
         prob_t probId,
@@ -123,7 +124,6 @@ public:
         const std::unordered_map<std::string, typename mesh_t::scalar_type> & userParams)
     : m_domIdx(domainIndex)
     , m_mesh(&mesh)
-    , m_neighborGraph(&neighborGraph)
     , m_app(std::make_shared<app_t>(pda::create_problem_eigen(
             mesh, probId, order,
             BCFunctor<mesh_t>(bcLeft),  BCFunctor<mesh_t>(bcFront),
@@ -135,7 +135,6 @@ public:
     , m_nonlinSolver(pressio::create_newton_solver(m_stepper, *m_linSolverObj))
     {
         m_fullMeshDims = calc_mesh_dims(*m_mesh);
-        init_bc_state();
 
         pda::resize(m_sampleGids, m_mesh->sampleMeshSize());
         for (int i = 0; i < m_mesh->sampleMeshSize(); ++i) {
@@ -164,13 +163,13 @@ public:
     const stencil_t * getSampleGids() const final { return &m_sampleGids; }
     void setStencilGids(std::vector<int> gids_vec) final { /*noop*/ }
     void genHyperMesh(std::string & subdom_dir) final { /*noop*/ }
-    const graph_t & getNeighborGraph() const final { return *m_neighborGraph; }
+    const graph_t & getNeighborGraph() const final { return m_neighborGraph; }
 
     void setNeighborGraph(graph_t & graph_in) {
-        pda::resize(m_neighborGraph2, graph_in.rows(), graph_in.cols());
+        pda::resize(m_neighborGraph, graph_in.rows(), graph_in.cols());
         for (int rowIdx = 0; rowIdx < graph_in.rows(); ++rowIdx) {
             for (int colIdx = 0; colIdx < graph_in.cols(); ++colIdx) {
-                m_neighborGraph2(rowIdx, colIdx) = graph_in(rowIdx, colIdx);
+                m_neighborGraph(rowIdx, colIdx) = graph_in(rowIdx, colIdx);
             }
         }
     }
@@ -183,8 +182,8 @@ public:
         for (int bdIdx = 0; bdIdx < rowsBd.size(); ++bdIdx) {
             auto rowIdx = rowsBd[bdIdx];
             // start at 1 to ignore own ID
-            for (int colIdx = 1; colIdx < m_neighborGraph->cols(); ++colIdx) {
-                if ((*m_neighborGraph)(rowIdx, colIdx) != -1) {
+            for (int colIdx = 1; colIdx < m_neighborGraph.cols(); ++colIdx) {
+                if (m_neighborGraph(rowIdx, colIdx) != -1) {
                     numGhostCells++;
                 }
             }
@@ -192,6 +191,10 @@ public:
         const int numDofStencilBc = m_app->numDofPerCell() * numGhostCells;
         pda::resize(m_stateBCs, numDofStencilBc);
         m_stateBCs.fill(0.0);
+    }
+
+    void finalize_subdomain() final {
+        init_bc_state();
     }
 
     void allocateStorageForHistory(const int count) final {
@@ -225,8 +228,7 @@ public:
     mesh_t const * m_mesh;
     std::array<int, 3> m_fullMeshDims;
     stencil_t m_sampleGids;
-    graph_t const * m_neighborGraph;
-    graph_t m_neighborGraph2;
+    graph_t m_neighborGraph;
     std::shared_ptr<app_t> m_app;
     state_t m_state;
     state_t m_stateBCs;
@@ -260,7 +262,6 @@ public:
     SubdomainROM(
         const int domainIndex,
         const mesh_t & mesh,
-        const graph_t & neighborGraph,
         BCType bcLeft, BCType bcFront,
         BCType bcRight, BCType bcBack,
         prob_t probId,
@@ -273,7 +274,6 @@ public:
         int nmodes)
     : m_domIdx(domainIndex)
     , m_mesh(&mesh)
-    , m_neighborGraph(&neighborGraph)
     , m_app(std::make_shared<app_t>(pda::create_problem_eigen(
             mesh, probId, order,
             BCFunctor<mesh_t>(bcLeft),  BCFunctor<mesh_t>(bcFront),
@@ -287,7 +287,6 @@ public:
     , m_stateReduced(m_trialSpace.createReducedState())
     {
         m_fullMeshDims = calc_mesh_dims(*m_mesh);
-        init_bc_state();
 
         pda::resize(m_sampleGids, m_mesh->sampleMeshSize());
         for (int i = 0; i < m_mesh->sampleMeshSize(); ++i) {
@@ -320,13 +319,13 @@ public:
     const stencil_t * getSampleGids() const final { return &m_sampleGids; }
     void setStencilGids(std::vector<int> gids_vec) final { /*noop*/ }
     void genHyperMesh(std::string & subdom_dir) final { /*noop*/ }
-    const graph_t & getNeighborGraph() const final { return *m_neighborGraph; }
+    const graph_t & getNeighborGraph() const final { return m_neighborGraph; }
 
     void setNeighborGraph(graph_t & graph_in) {
-        pda::resize(m_neighborGraph2, graph_in.rows(), graph_in.cols());
+        pda::resize(m_neighborGraph, graph_in.rows(), graph_in.cols());
         for (int rowIdx = 0; rowIdx < graph_in.rows(); ++rowIdx) {
             for (int colIdx = 0; colIdx < graph_in.cols(); ++colIdx) {
-                m_neighborGraph2(rowIdx, colIdx) = graph_in(rowIdx, colIdx);
+                m_neighborGraph(rowIdx, colIdx) = graph_in(rowIdx, colIdx);
             }
         }
     }
@@ -339,8 +338,8 @@ public:
         for (int bdIdx = 0; bdIdx < rowsBd.size(); ++bdIdx) {
             auto rowIdx = rowsBd[bdIdx];
             // start at 1 to ignore own ID
-            for (int colIdx = 1; colIdx < m_neighborGraph->cols(); ++colIdx) {
-                if ((*m_neighborGraph)(rowIdx, colIdx) != -1) {
+            for (int colIdx = 1; colIdx < m_neighborGraph.cols(); ++colIdx) {
+                if (m_neighborGraph(rowIdx, colIdx) != -1) {
                     numGhostCells++;
                 }
             }
@@ -348,6 +347,10 @@ public:
         const int numDofStencilBc = m_app->numDofPerCell() * numGhostCells;
         pda::resize(m_stateBCs, numDofStencilBc);
         m_stateBCs.fill(0.0);
+    }
+
+    void finalize_subdomain() final {
+        init_bc_state();
     }
 
     void allocateStorageForHistory(const int count){
@@ -376,8 +379,7 @@ protected:
     mesh_t const * m_mesh;
     std::array<int, 3> m_fullMeshDims;
     stencil_t m_sampleGids;
-    graph_t const * m_neighborGraph;
-    graph_t m_neighborGraph2;
+    graph_t m_neighborGraph;
     std::shared_ptr<app_t> m_app;
     state_t m_state;
     state_t m_stateBCs;
@@ -421,7 +423,6 @@ public:
     SubdomainLSPG(
         const int domainIndex,
         const mesh_t & mesh,
-        const graph_t & neighborGraph,
         BCType bcLeft, BCType bcFront,
         BCType bcRight, BCType bcBack,
         prob_t probId,
@@ -433,7 +434,7 @@ public:
         const std::string & basisRoot,
         const int nmodes)
     : SubdomainROM<mesh_t, app_type>::SubdomainROM(
-        domainIndex, mesh, neighborGraph,
+        domainIndex, mesh,
         bcLeft, bcFront, bcRight, bcBack,
         probId, odeScheme, order, icflag, userParams,
         transRoot, basisRoot, nmodes)
@@ -484,7 +485,6 @@ public:
     SubdomainHyper(
         const int domainIndex,
         const mesh_t & meshFull,
-        const graph_t & neighborGraph,
         BCType bcLeft, BCType bcFront,
         BCType bcRight, BCType bcBack,
         prob_t probId,
@@ -510,7 +510,6 @@ public:
             BCFunctor<mesh_t>(bcLeft),  BCFunctor<mesh_t>(bcFront),
             BCFunctor<mesh_t>(bcRight), BCFunctor<mesh_t>(bcBack),
             icflag, userParams)))
-    , m_neighborGraph(&neighborGraph)
     , m_sampleFile(meshPathHyper + "/sample_mesh_gids.dat")
     , m_stencilFile(meshPathHyper + "/stencil_mesh_gids.dat")
     , m_sampleGids(create_cell_gids_vector_and_fill_from_ascii(m_sampleFile))
@@ -531,7 +530,6 @@ public:
         m_stateStencil = m_appHyper->initialCondition();
         m_stateFull = m_appFull->initialCondition();
         m_stateReduced = m_trialSpaceHyper.createReducedState();
-        init_bc_state();
 
         m_fullMeshDims = calc_mesh_dims(*m_meshFull);
 
@@ -562,7 +560,7 @@ public:
     const mesh_t & getMeshFull() const final { return *m_meshFull; }
     const std::array<int, 3> getFullMeshDims() const final { return m_fullMeshDims; }
     const stencil_t * getSampleGids() const final { return &m_sampleGids; }
-    const graph_t & getNeighborGraph() const final { return *m_neighborGraph; }
+    const graph_t & getNeighborGraph() const final { return m_neighborGraph; }
 
     void setStencilGids(std::vector<int> gids_vec) final {
         pda::resize(m_stencilGids2, (int) gids_vec.size());
@@ -578,10 +576,10 @@ public:
     }
 
     void setNeighborGraph(graph_t & graph_in) {
-        pda::resize(m_neighborGraph2, graph_in.rows(), graph_in.cols());
+        pda::resize(m_neighborGraph, graph_in.rows(), graph_in.cols());
         for (int rowIdx = 0; rowIdx < graph_in.rows(); ++rowIdx) {
             for (int colIdx = 0; colIdx < graph_in.cols(); ++colIdx) {
-                m_neighborGraph2(rowIdx, colIdx) = graph_in(rowIdx, colIdx);
+                m_neighborGraph(rowIdx, colIdx) = graph_in(rowIdx, colIdx);
             }
         }
     }
@@ -595,8 +593,8 @@ public:
         for (int bdIdx = 0; bdIdx < rowsBd.size(); ++bdIdx) {
             auto rowIdx = rowsBd[bdIdx];
             // start at 1 to ignore own ID
-            for (int colIdx = 1; colIdx < m_neighborGraph->cols(); ++colIdx) {
-                if ((*m_neighborGraph)(rowIdx, colIdx) != -1) {
+            for (int colIdx = 1; colIdx < m_neighborGraph.cols(); ++colIdx) {
+                if (m_neighborGraph(rowIdx, colIdx) != -1) {
                     numGhostCells++;
                 }
             }
@@ -604,6 +602,10 @@ public:
         const int numDofStencilBc = m_appHyper->numDofPerCell() * numGhostCells;
         pda::resize(m_stateBCs, numDofStencilBc);
         m_stateBCs.fill(0.0);
+    }
+
+    void finalize_subdomain() final {
+        init_bc_state();
     }
 
     void allocateStorageForHistory(const int count){
@@ -633,8 +635,7 @@ public:
     mesh_t const * m_meshHyper;
     mesh_t m_meshHyper2;
     std::array<int, 3> m_fullMeshDims;
-    graph_t const * m_neighborGraph;
-    graph_t m_neighborGraph2;
+    graph_t m_neighborGraph;
     std::shared_ptr<app_t> m_appFull;
     std::shared_ptr<app_t> m_appHyper;
 
@@ -696,7 +697,6 @@ public:
     SubdomainLSPGHyper(
         const int domainIndex,
         const mesh_t & meshFull,
-        const graph_t & neighborGraph,
         BCType bcLeft, BCType bcFront,
         BCType bcRight, BCType bcBack,
         prob_t probId,
@@ -710,7 +710,7 @@ public:
         const mesh_t & meshHyper,
         const std::string & meshPathHyper)
     : SubdomainHyper<mesh_t, app_type>::SubdomainHyper(
-        domainIndex, meshFull, neighborGraph,
+        domainIndex, meshFull,
         bcLeft, bcFront, bcRight, bcBack,
         probId, odeScheme, order, icflag, userParams,
         transRoot, basisRoot, nmodes,
@@ -745,59 +745,25 @@ public:
 auto create_meshes(std::string const & meshRoot, const int n)
 {
     using mesh_t = pda::cellcentered_uniform_mesh_eigen_type;
-    using graph_t = typename mesh_t::graph_t;
 
     std::vector<mesh_t> meshes;
     std::vector<std::string> meshPaths;
-    std::vector<graph_t> neighborGraphs(n);
 
     for (int domIdx = 0; domIdx < n; ++domIdx) {
         // read mesh
         meshPaths.emplace_back(meshRoot + "/domain_" + std::to_string(domIdx));
         meshes.emplace_back( pda::load_cellcentered_uniform_mesh_eigen(meshPaths.back()) );
-
-        // read neighbor connectivity
-        const auto numNeighbors = (meshes.back().stencilSize() - 1) * meshes.back().dimensionality();
-        const auto graphNumCols = numNeighbors + 1;
-        pda::resize(neighborGraphs[domIdx], meshes.back().sampleMeshSize(), graphNumCols);
-
-        // this is ripped directly from mesh_read_connectivity, since it doesn't generalize the file name
-        const auto inFile = meshPaths.back() + "/connectivity_neighbor.dat";
-        std::ifstream foundFile(inFile);
-        if (!foundFile) {
-            std::cout << "file not found " << inFile << std::endl;
-            exit(EXIT_FAILURE);
-        }
-
-        std::ifstream source(inFile, std::ios_base::in);
-        std::string line;
-        std::size_t count = 0;
-        while (std::getline(source, line))
-        {
-            std::istringstream ss(line);
-            std::string colVal;
-            ss >> colVal;
-            neighborGraphs[domIdx](count, 0) = std::stoi(colVal);
-
-            for (auto graphIdx = 1; graphIdx <= graphNumCols - 1; ++graphIdx) {
-                ss >> colVal;
-                neighborGraphs[domIdx](count, graphIdx) = std::stoi(colVal);
-            }
-            count++;
-        }
-        source.close();
     }
 
-    return std::tuple(meshes, meshPaths, neighborGraphs);
+    return std::tuple(meshes, meshPaths);
 }
 
 //
 // all domains are assumed to be FOM domains
 //
-template<class app_t, class mesh_t, class graph_t, class prob_t>
+template<class app_t, class mesh_t, class prob_t>
 auto create_subdomains(
     const std::vector<mesh_t> & meshes,
-    const std::vector<graph_t> & neighborGraphs,
     const Tiling & tiling,
     prob_t probId,
     pode::StepScheme odeScheme,
@@ -813,7 +779,7 @@ auto create_subdomains(
     std::vector<mesh_t> meshesHyper(ndomains);
     std::vector<std::string> meshPathsHyper(ndomains, "");
 
-    return create_subdomains<app_t>(meshes, neighborGraphs, tiling,
+    return create_subdomains<app_t>(meshes, tiling,
         probId, odeScheme, order,
         domFlagVec, "", "", nmodesVec,
         icFlag, meshesHyper, meshPathsHyper, userParams);
@@ -823,10 +789,9 @@ auto create_subdomains(
 //
 // Subdomain type specified by domFlagVec
 //
-template<class app_t, class mesh_t, class graph_t, class prob_t>
+template<class app_t, class mesh_t, class prob_t>
 auto create_subdomains(
     const std::vector<mesh_t> & meshes,
-    const std::vector<graph_t> & neighborGraphs,
     const Tiling & tiling,
     prob_t probId,
     pode::StepScheme odeScheme,
@@ -888,13 +853,13 @@ auto create_subdomains(
 
         if (domFlagVec[domIdx] == "FOM") {
             result.emplace_back(std::make_shared<SubdomainFOM<mesh_t, app_t>>(
-                domIdx, meshes[domIdx], neighborGraphs[domIdx],
+                domIdx, meshes[domIdx],
                 bcLeft, bcFront, bcRight, bcBack,
                 probId, odeScheme, order, icFlag, userParams));
         }
         else if (domFlagVec[domIdx] == "LSPG") {
             result.emplace_back(std::make_shared<SubdomainLSPG<mesh_t, app_t>>(
-                domIdx, meshes[domIdx], neighborGraphs[domIdx],
+                domIdx, meshes[domIdx],
                 bcLeft, bcFront, bcRight, bcBack,
                 probId, odeScheme, order, icFlag, userParams,
                 transRoot, basisRoot, nmodesVec[domIdx]));
@@ -903,7 +868,7 @@ auto create_subdomains(
             // TODO: the access of meshesHyper is a little wonky,
             //      as it's not guaranteed that every mesh be a sample mesh
             result.emplace_back(std::make_shared<SubdomainLSPGHyper<mesh_t, app_t>>(
-                domIdx, meshes[domIdx], neighborGraphs[domIdx],
+                domIdx, meshes[domIdx],
                 bcLeft, bcFront, bcRight, bcBack,
                 probId, odeScheme, order, icFlag, userParams,
                 transRoot, basisRoot, nmodesVec[domIdx],

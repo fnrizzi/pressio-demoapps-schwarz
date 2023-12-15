@@ -73,14 +73,20 @@ public:
         // only relevant if at least one domain is a hyper-reduction subdomain
         calc_hyper_connectivity();
 
+        // hyper-reduction subdomains need some final member object initializations
+        // this is a consequence of computing the stencil mesh at runtime
+        for (int domIdx = 0; domIdx < m_subdomainVec.size(); ++domIdx) {
+            m_subdomainVec[domIdx]->finalize_subdomain();
+        }
+
         setup_controller(dtVec);
-        for (int domIdx = 0; domIdx < (int) m_subdomainVec.size(); ++domIdx) {
+        for (int domIdx = 0; domIdx < m_subdomainVec.size(); ++domIdx) {
             m_subdomainVec[domIdx]->allocateStorageForHistory(m_controlItersVec[domIdx]);
         }
 
         // set up communication patterns, first communication
         calc_exch_graph();
-        for (int domIdx = 0; domIdx < (int) m_subdomainVec.size(); ++domIdx) {
+        for (int domIdx = 0; domIdx < m_subdomainVec.size(); ++domIdx) {
             broadcast_bcState(domIdx);
         }
 
@@ -459,6 +465,8 @@ private:
         }
 
         // finally, delete temporary directory
+        // TODO: this is not actually deleting it, only removes empty directories
+        // Need to figure out std::filesystem for remove_all()
         ::rmdir(tempdir.c_str());
 
     }

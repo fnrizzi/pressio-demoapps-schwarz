@@ -263,47 +263,47 @@ def main(decompdir, sampdir, gidfile):
             f.write(f"stencilSize {stencil_size:2d}\n")
 
         # write neighboring stencil IDs
-        with open(os.path.join(meshdir_sub, "connectivity_neighbor.dat"), "w") as f:
-            for samp_idx in range(nsamps):
-                stencil_id = global_to_stencil_map[samp_gids[samp_idx]]
-                f.write(f"{stencil_id:8d}")
-                for stencil_idx in range(nstencil):
-                    neigh_gid = connect_samp_neigh[i][j][k][samp_idx, stencil_idx]
-                    if neigh_gid == -1:
-                        neigh_sid = -1
-                    else:
-                        i_neigh = i
-                        j_neigh = j
-                        k_neigh = k
-                        remain = stencil_idx % (ndim * 2)
-                        # left
-                        if remain == 0:
-                            i_neigh -= 1
-                        # right (1D)
-                        if (ndim == 1) and (remain == 1):
-                            i_neigh += 1
-                        if ndim > 1:
-                            # front
-                            if remain == 1:
-                                j_neigh += 1
-                            # right
-                            if remain == 2:
-                                i_neigh += 1
-                            # back
-                            if remain == 3:
-                                j_neigh -= 1
-                        if ndim == 3:
-                            # bottom
-                            if remain == 4:
-                                k_neigh -= 1
-                            # top
-                            if remain == 5:
-                                k_neigh += 1
-                        global_to_stencil_map_neigh = global_to_stencil_map_sub[i_neigh][j_neigh][k_neigh]
-                        neigh_sid = global_to_stencil_map_neigh[neigh_gid]
+        # with open(os.path.join(meshdir_sub, "connectivity_neighbor.dat"), "w") as f:
+        #     for samp_idx in range(nsamps):
+        #         stencil_id = global_to_stencil_map[samp_gids[samp_idx]]
+        #         f.write(f"{stencil_id:8d}")
+        #         for stencil_idx in range(nstencil):
+        #             neigh_gid = connect_samp_neigh[i][j][k][samp_idx, stencil_idx]
+        #             if neigh_gid == -1:
+        #                 neigh_sid = -1
+        #             else:
+        #                 i_neigh = i
+        #                 j_neigh = j
+        #                 k_neigh = k
+        #                 remain = stencil_idx % (ndim * 2)
+        #                 # left
+        #                 if remain == 0:
+        #                     i_neigh -= 1
+        #                 # right (1D)
+        #                 if (ndim == 1) and (remain == 1):
+        #                     i_neigh += 1
+        #                 if ndim > 1:
+        #                     # front
+        #                     if remain == 1:
+        #                         j_neigh += 1
+        #                     # right
+        #                     if remain == 2:
+        #                         i_neigh += 1
+        #                     # back
+        #                     if remain == 3:
+        #                         j_neigh -= 1
+        #                 if ndim == 3:
+        #                     # bottom
+        #                     if remain == 4:
+        #                         k_neigh -= 1
+        #                     # top
+        #                     if remain == 5:
+        #                         k_neigh += 1
+        #                 global_to_stencil_map_neigh = global_to_stencil_map_sub[i_neigh][j_neigh][k_neigh]
+        #                 neigh_sid = global_to_stencil_map_neigh[neigh_gid]
 
-                    f.write(f" {neigh_sid:8d}")
-                f.write("\n")
+        #             f.write(f" {neigh_sid:8d}")
+        #         f.write("\n")
 
 if __name__ == "__main__":
 
