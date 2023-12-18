@@ -1,6 +1,7 @@
 
 set(MESHSRC ${PDA_SOURCE}/meshing_scripts)
 set(DECOMPSRC ${CMAKE_CURRENT_SOURCE_DIR}/../meshing_scripts)
+set(TESTWENO3 TRUE)
 
 # include demoapps headers and Schwarz routines
 include_directories(

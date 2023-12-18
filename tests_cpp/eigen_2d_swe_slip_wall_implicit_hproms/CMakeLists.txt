@@ -1,4 +1,6 @@
 
 add_subdirectory(lspg/firstorder)
-add_subdirectory(lspg/weno3)
+if(${TESTWENO3})
+  add_subdirectory(lspg/weno3)
+endif()
 
