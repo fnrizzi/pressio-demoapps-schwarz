@@ -704,7 +704,7 @@ private:
 
     using updaterHyp_t   = HypRedUpdater<scalar_t>;
     using problemHyp_t   = decltype(plspg::create_unsteady_problem(pressio::ode::StepScheme(), std::declval<trialHyp_t&>(), std::declval<app_t&>(), std::declval<updaterHyp_t&>()));
-    using stepperHyp_t   = decltype(std::declval<problemHyp_t>().lspgStepper());
+  using stepperHyp_t   = std::remove_reference_t<decltype(std::declval<problemHyp_t>().lspgStepper())>;
     using nonlinsolverHyp_t = decltype(pressio::create_gauss_newton_solver(std::declval<stepperHyp_t&>(), std::declval<linsolver_t&>()));
 
 public:
@@ -748,11 +748,10 @@ public:
         m_updaterHyper = std::make_shared<updaterHyp_t>(create_hyper_updater<mesh_t>(this->getDofPerCell(), this->m_stencilFile, this->m_sampleFile));
         m_problemHyper = std::make_shared<problemHyp_t>(plspg::create_unsteady_problem(m_odeScheme, *(this->m_trialSpaceHyper), *(this->m_appHyper), *m_updaterHyper));
 
-        // THIS IS BROKEN
-        // m_stepperHyper = std::make_shared<stepperHyp_t>(m_problemHyper->lspgStepperPtr());
+        m_stepperHyper = &m_problemHyper->lspgStepper();
 
-        // m_linSolverObjHyper = std::make_shared<linsolver_t>();
-        // m_nonlinSolverHyper = std::make_shared<nonlinsolverHyp_t>(pressio::create_gauss_newton_solver(*(*m_stepperHyper), *m_linSolverObjHyper));
+        m_linSolverObjHyper = std::make_shared<linsolver_t>();
+        m_nonlinSolverHyper = std::make_shared<nonlinsolverHyp_t>(pressio::create_gauss_newton_solver(*m_stepperHyper, *m_linSolverObjHyper));
     }
 
 // TODO: to protected
@@ -761,9 +760,11 @@ public:
     pressio::ode::StepScheme m_odeScheme;
     std::shared_ptr<updaterHyp_t> m_updaterHyper;
     std::shared_ptr<problemHyp_t> m_problemHyper;
-    // std::shared_ptr<stepperHyp_t> m_stepperHyper;
-    // std::shared_ptr<linsolver_t> m_linSolverObjHyper;
-    // std::shared_ptr<nonlinsolverHyp_t> m_nonlinSolverHyper;
+    // m_stepperHyper should NOT be a shared_ptr because you are not allocatign memory for it,
+   // you are just "viewing" an objet that is owned by m_problemHyper
+    stepperHyp_t * m_stepperHyper;
+    std::shared_ptr<linsolver_t> m_linSolverObjHyper;
+    std::shared_ptr<nonlinsolverHyp_t> m_nonlinSolverHyper;
 
 };
 
