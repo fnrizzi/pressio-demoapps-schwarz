@@ -88,7 +88,7 @@ public:
 };
 
 
-template<class mesh_t, class app_type>
+template<class mesh_t, class app_type, class prob_t>
 class SubdomainFOM: public SubdomainBase<mesh_t, typename app_type::state_type>
 {
 public:
@@ -111,7 +111,6 @@ public:
                             std::declval<linsolver_t&>()) );
 
 public:
-    template<class prob_t>
     SubdomainFOM(
         const int domainIndex,
         const mesh_t & mesh,
@@ -242,7 +241,7 @@ public:
 
 
 
-template<class mesh_t, class app_type>
+template<class mesh_t, class app_type, class prob_t>
 class SubdomainROM: public SubdomainBase<mesh_t, typename app_type::state_type>
 {
     using app_t    = app_type;
@@ -258,7 +257,6 @@ class SubdomainROM: public SubdomainBase<mesh_t, typename app_type::state_type>
         state_t>(std::declval<basis_t&&>(), std::declval<trans_t&&>(), true));
 
 public:
-    template<class prob_t>
     SubdomainROM(
         const int domainIndex,
         const mesh_t & mesh,
@@ -394,8 +392,8 @@ protected:
 
 };
 
-template<class mesh_t, class app_type>
-class SubdomainLSPG: public SubdomainROM<mesh_t, app_type>
+template<class mesh_t, class app_type, class prob_t>
+class SubdomainLSPG: public SubdomainROM<mesh_t, app_type, prob_t>
 {
 
 private:
@@ -419,7 +417,6 @@ private:
 
 public:
 
-    template<class prob_t>
     SubdomainLSPG(
         const int domainIndex,
         const mesh_t & mesh,
@@ -433,7 +430,7 @@ public:
         const std::string & transRoot,
         const std::string & basisRoot,
         const int nmodes)
-    : SubdomainROM<mesh_t, app_type>::SubdomainROM(
+    : SubdomainROM<mesh_t, app_type, prob_t>::SubdomainROM(
         domainIndex, mesh,
         bcLeft, bcFront, bcRight, bcBack,
         probId, odeScheme, order, icflag, userParams,
@@ -458,9 +455,11 @@ private:
 };
 
 
-template<class mesh_t, class app_type>
+template<class mesh_t, class app_type, class prob_t>
 class SubdomainHyper: public SubdomainBase<mesh_t, typename app_type::state_type>
 {
+    // TODO: really need to add some error checking
+    //      to protect against the circuitious initialization
 
 private:
     using app_t    = app_type;
@@ -481,7 +480,6 @@ private:
 
 public:
 
-    template<class prob_t>
     SubdomainHyper(
         const int domainIndex,
         const mesh_t & meshFull,
@@ -499,37 +497,31 @@ public:
         const std::string & meshPathHyper)
     : m_domIdx(domainIndex)
     , m_meshFull(&meshFull)
-    , m_meshHyper(&meshHyper)
+    , m_probId(probId)
+    , m_order(order)
+    , m_bcLeft(bcLeft), m_bcFront(bcFront)
+    , m_bcRight(bcRight), m_bcBack(bcBack)
+    , m_icflag(icflag)
+    , m_userParams(userParams)
     , m_appFull(std::make_shared<app_t>(pda::create_problem_eigen(
             meshFull, probId, order,
-            BCFunctor<mesh_t>(bcLeft),  BCFunctor<mesh_t>(bcFront),
-            BCFunctor<mesh_t>(bcRight), BCFunctor<mesh_t>(bcBack),
-            icflag, userParams)))
-    , m_appHyper(std::make_shared<app_t>(pda::create_problem_eigen(
-            meshHyper, probId, order,
             BCFunctor<mesh_t>(bcLeft),  BCFunctor<mesh_t>(bcFront),
             BCFunctor<mesh_t>(bcRight), BCFunctor<mesh_t>(bcBack),
             icflag, userParams)))
     , m_sampleFile(meshPathHyper + "/sample_mesh_gids.dat")
     , m_stencilFile(meshPathHyper + "/stencil_mesh_gids.dat")
     , m_sampleGids(create_cell_gids_vector_and_fill_from_ascii(m_sampleFile))
-    , m_stencilGids(create_cell_gids_vector_and_fill_from_ascii(m_stencilFile))
     , m_nmodes(nmodes)
     , m_transFull(read_vector_from_binary<scalar_t>(transRoot + "_" + std::to_string(domainIndex) + ".bin"))
     , m_basisFull(read_matrix_from_binary<scalar_t>(basisRoot + "_" + std::to_string(domainIndex) + ".bin", nmodes))
     , m_transRead(read_vector_from_binary<scalar_t>(transRoot + "_" + std::to_string(domainIndex) + ".bin"))
     , m_basisRead(read_matrix_from_binary<scalar_t>(basisRoot + "_" + std::to_string(domainIndex) + ".bin", nmodes))
-    , m_transHyper(reduce_vector_on_stencil_mesh(m_transRead, m_stencilGids, m_appFull->numDofPerCell()))
-    , m_basisHyper(reduce_matrix_on_stencil_mesh(m_basisRead, m_stencilGids, m_appFull->numDofPerCell()))
     , m_trialSpaceFull(prom::create_trial_column_subspace<
        state_t>(std::move(m_basisFull), std::move(m_transFull), true))
-    , m_trialSpaceHyper(prom::create_trial_column_subspace<
-       state_t>(std::move(m_basisHyper), std::move(m_transHyper), true))
     {
 
-        m_stateStencil = m_appHyper->initialCondition();
         m_stateFull = m_appFull->initialCondition();
-        m_stateReduced = m_trialSpaceHyper.createReducedState();
+        m_stateReduced = m_trialSpaceFull.createReducedState();
 
         m_fullMeshDims = calc_mesh_dims(*m_meshFull);
 
@@ -556,23 +548,21 @@ public:
         return &m_stateFull;
     }
     int getDofPerCell() const final { return m_appHyper->numDofPerCell(); }
-    const mesh_t & getMeshStencil() const final { return *m_meshHyper; }
+    const mesh_t & getMeshStencil() const final { return m_meshHyper; }
     const mesh_t & getMeshFull() const final { return *m_meshFull; }
     const std::array<int, 3> getFullMeshDims() const final { return m_fullMeshDims; }
     const stencil_t * getSampleGids() const final { return &m_sampleGids; }
     const graph_t & getNeighborGraph() const final { return m_neighborGraph; }
 
     void setStencilGids(std::vector<int> gids_vec) final {
-        pda::resize(m_stencilGids2, (int) gids_vec.size());
+        pda::resize(m_stencilGids, (int) gids_vec.size());
         for (int stencilIdx = 0; stencilIdx < gids_vec.size(); ++stencilIdx) {
-            m_stencilGids2(stencilIdx) = gids_vec[stencilIdx];
+            m_stencilGids(stencilIdx) = gids_vec[stencilIdx];
         }
     }
 
     void genHyperMesh(std::string & subdom_dir) final {
-
-        m_meshHyper2 = pda::load_cellcentered_uniform_mesh_eigen(subdom_dir);
-
+        m_meshHyper = pda::load_cellcentered_uniform_mesh_eigen(subdom_dir);
     }
 
     void setNeighborGraph(graph_t & graph_in) {
@@ -589,7 +579,7 @@ public:
 
         // count number of neighbor ghost cells in neighborGraph
         int numGhostCells = 0;
-        const auto & rowsBd = m_meshHyper->graphRowsOfCellsNearBd();
+        const auto & rowsBd = m_meshHyper.graphRowsOfCellsNearBd();
         for (int bdIdx = 0; bdIdx < rowsBd.size(); ++bdIdx) {
             auto rowIdx = rowsBd[bdIdx];
             // start at 1 to ignore own ID
@@ -604,14 +594,31 @@ public:
         m_stateBCs.fill(0.0);
     }
 
-    void finalize_subdomain() final {
+    // All this junk has to happen AFTER construction,
+    //      as the hyper-reduction mesh hasn't been generated at that point
+    void finalize_subdomain() {
+
+        m_appHyper = std::make_shared<app_t>(pda::create_problem_eigen(
+            m_meshHyper, m_probId, m_order,
+            BCFunctor<mesh_t>(m_bcLeft),  BCFunctor<mesh_t>(m_bcFront),
+            BCFunctor<mesh_t>(m_bcRight), BCFunctor<mesh_t>(m_bcBack),
+            m_icflag, m_userParams));
+
+        m_transHyper = std::make_shared<transHyp_t>(reduce_vector_on_stencil_mesh(m_transRead, m_stencilGids, m_appFull->numDofPerCell()));
+        m_basisHyper = std::make_shared<basisHyp_t>(reduce_matrix_on_stencil_mesh(m_basisRead, m_stencilGids, m_appFull->numDofPerCell()));
+        m_trialSpaceHyper = std::make_shared<trialHyp_t>(prom::create_trial_column_subspace<
+       state_t>(std::move(*m_basisHyper), std::move(*m_transHyper), true));
+
+        m_stateStencil = m_appHyper->initialCondition();
+
         init_bc_state();
+
     }
 
     void allocateStorageForHistory(const int count){
         for (int histIdx = 0; histIdx < count + 1; ++histIdx) {
             m_stateHistVec.emplace_back(m_appHyper->createState());
-            m_stateReducedHistVec.emplace_back(m_trialSpaceHyper.createReducedState());
+            m_stateReducedHistVec.emplace_back(m_trialSpaceHyper->createReducedState());
         }
     }
 
@@ -626,18 +633,26 @@ public:
     }
 
     void updateFullState() final {
-        m_trialSpaceHyper.mapFromReducedState(m_stateReduced, m_stateStencil);
+        m_trialSpaceHyper->mapFromReducedState(m_stateReduced, m_stateStencil);
     }
 
 public:
     int m_domIdx;
     mesh_t const * m_meshFull;
-    mesh_t const * m_meshHyper;
-    mesh_t m_meshHyper2;
+    mesh_t m_meshHyper;
     std::array<int, 3> m_fullMeshDims;
     graph_t m_neighborGraph;
     std::shared_ptr<app_t> m_appFull;
     std::shared_ptr<app_t> m_appHyper;
+
+    prob_t m_probId;
+    pda::InviscidFluxReconstruction m_order;
+    int m_icflag;
+    const std::unordered_map<std::string, typename mesh_t::scalar_type> m_userParams;
+    BCType m_bcLeft;
+    BCType m_bcFront;
+    BCType m_bcRight;
+    BCType m_bcBack;
 
     state_t m_stateStencil;  // on stencil mesh
     state_t m_stateFull;     // on full, unsampled mesh (required for projection)
@@ -658,14 +673,15 @@ public:
     trans_t m_transRead;
     basis_t m_basisRead;
     trial_t m_trialSpaceFull;
-    transHyp_t m_transHyper;
-    basisHyp_t m_basisHyper;
-    trialHyp_t m_trialSpaceHyper;
+
+    std::shared_ptr<transHyp_t> m_transHyper;
+    std::shared_ptr<basisHyp_t> m_basisHyper;
+    std::shared_ptr<trialHyp_t> m_trialSpaceHyper;
 
 };
 
-template<class mesh_t, class app_type>
-class SubdomainLSPGHyper: public SubdomainHyper<mesh_t, app_type>
+template<class mesh_t, class app_type, class prob_t>
+class SubdomainLSPGHyper: public SubdomainHyper<mesh_t, app_type, prob_t>
 {
 
 private:
@@ -693,7 +709,6 @@ private:
 
 public:
 
-    template<class prob_t>
     SubdomainLSPGHyper(
         const int domainIndex,
         const mesh_t & meshFull,
@@ -709,33 +724,46 @@ public:
         const int nmodes,
         const mesh_t & meshHyper,
         const std::string & meshPathHyper)
-    : SubdomainHyper<mesh_t, app_type>::SubdomainHyper(
+    : SubdomainHyper<mesh_t, app_type, prob_t>::SubdomainHyper(
         domainIndex, meshFull,
         bcLeft, bcFront, bcRight, bcBack,
         probId, odeScheme, order, icflag, userParams,
         transRoot, basisRoot, nmodes,
         meshHyper, meshPathHyper)
-    , m_updaterHyper(create_hyper_updater<mesh_t>(this->getDofPerCell(), this->m_stencilFile, this->m_sampleFile))
-    , m_problemHyper(plspg::create_unsteady_problem(odeScheme, this->m_trialSpaceHyper, *(this->m_appHyper), m_updaterHyper))
-    , m_stepperHyper(m_problemHyper.lspgStepper())
-    , m_linSolverObjHyper(std::make_shared<linsolver_t>())
-    , m_nonlinSolverHyper(pressio::create_gauss_newton_solver(m_stepperHyper, *m_linSolverObjHyper))
     {
-
+        m_odeScheme = odeScheme;
     }
 
     void doStep(pode::StepStartAt<double> startTime, pode::StepCount step, pode::StepSize<double> dt) final {
-        m_stepperHyper(this->m_stateReduced, startTime, step, dt, m_nonlinSolverHyper);
+        // m_stepperHyper(this->m_stateReduced, startTime, step, dt, m_nonlinSolverHyper);
+        // m_problemHyper->lspgStepper()(this->m_stateReduced, startTime, step, dt, *m_nonlinSolverHyper);
+        throw std::runtime_error("SubdomainLSPGHyper doStep has not been fixed");
+    }
+
+    // Again, this has to be done because the hyper-reduced mesh
+    //      has not been initialized on construction
+    void finalize_subdomain() final {
+        SubdomainHyper<mesh_t, app_t, prob_t>::finalize_subdomain();
+
+        m_updaterHyper = std::make_shared<updaterHyp_t>(create_hyper_updater<mesh_t>(this->getDofPerCell(), this->m_stencilFile, this->m_sampleFile));
+        m_problemHyper = std::make_shared<problemHyp_t>(plspg::create_unsteady_problem(m_odeScheme, *(this->m_trialSpaceHyper), *(this->m_appHyper), *m_updaterHyper));
+
+        // THIS IS BROKEN
+        // m_stepperHyper = std::make_shared<stepperHyp_t>(m_problemHyper->lspgStepperPtr());
+
+        // m_linSolverObjHyper = std::make_shared<linsolver_t>();
+        // m_nonlinSolverHyper = std::make_shared<nonlinsolverHyp_t>(pressio::create_gauss_newton_solver(*(*m_stepperHyper), *m_linSolverObjHyper));
     }
 
 // TODO: to protected
 public:
 
-    updaterHyp_t m_updaterHyper;
-    problemHyp_t m_problemHyper;
-    stepperHyp_t m_stepperHyper;
-    std::shared_ptr<linsolver_t> m_linSolverObjHyper;
-    nonlinsolverHyp_t m_nonlinSolverHyper;
+    pressio::ode::StepScheme m_odeScheme;
+    std::shared_ptr<updaterHyp_t> m_updaterHyper;
+    std::shared_ptr<problemHyp_t> m_problemHyper;
+    // std::shared_ptr<stepperHyp_t> m_stepperHyper;
+    // std::shared_ptr<linsolver_t> m_linSolverObjHyper;
+    // std::shared_ptr<nonlinsolverHyp_t> m_nonlinSolverHyper;
 
 };
 
@@ -808,7 +836,6 @@ auto create_subdomains(
 
     // add checks that vectors are all same size?
 
-    // using subdomain_t = Subdomain<prob_t, mesh_t, app_t>;
     using subdomain_t = SubdomainBase<mesh_t, typename app_t::state_type>;
     std::vector<std::shared_ptr<subdomain_t>> result;
 
@@ -852,13 +879,13 @@ auto create_subdomains(
         }
 
         if (domFlagVec[domIdx] == "FOM") {
-            result.emplace_back(std::make_shared<SubdomainFOM<mesh_t, app_t>>(
+            result.emplace_back(std::make_shared<SubdomainFOM<mesh_t, app_t, prob_t>>(
                 domIdx, meshes[domIdx],
                 bcLeft, bcFront, bcRight, bcBack,
                 probId, odeScheme, order, icFlag, userParams));
         }
         else if (domFlagVec[domIdx] == "LSPG") {
-            result.emplace_back(std::make_shared<SubdomainLSPG<mesh_t, app_t>>(
+            result.emplace_back(std::make_shared<SubdomainLSPG<mesh_t, app_t, prob_t>>(
                 domIdx, meshes[domIdx],
                 bcLeft, bcFront, bcRight, bcBack,
                 probId, odeScheme, order, icFlag, userParams,
@@ -867,7 +894,7 @@ auto create_subdomains(
         else if (domFlagVec[domIdx] == "LSPGHyper") {
             // TODO: the access of meshesHyper is a little wonky,
             //      as it's not guaranteed that every mesh be a sample mesh
-            result.emplace_back(std::make_shared<SubdomainLSPGHyper<mesh_t, app_t>>(
+            result.emplace_back(std::make_shared<SubdomainLSPGHyper<mesh_t, app_t, prob_t>>(
                 domIdx, meshes[domIdx],
                 bcLeft, bcFront, bcRight, bcBack,
                 probId, odeScheme, order, icFlag, userParams,
