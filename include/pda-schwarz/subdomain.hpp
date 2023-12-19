@@ -699,22 +699,40 @@ public:
     using basis_t = typename base_t::basis_t;
     using stencil_t  = typename base_t::stencil_t;
 
-    using transHyp_t = decltype(reduce_vector_on_stencil_mesh(std::declval<trans_t&>(), std::declval<stencil_t&>(), 1));
-    using basisHyp_t = decltype(reduce_matrix_on_stencil_mesh(std::declval<basis_t&>(), std::declval<stencil_t&>(), 1));
-    using trialHyp_t = decltype(prom::create_trial_column_subspace<
-        state_t>(std::declval<basisHyp_t&&>(), std::declval<transHyp_t&&>(), true));
+    using transHyp_t =
+      decltype(reduce_vector_on_stencil_mesh(std::declval<trans_t&>(),
+					     std::declval<stencil_t&>(),
+					     1));
+
+    using basisHyp_t =
+      decltype(reduce_matrix_on_stencil_mesh(std::declval<basis_t&>(),
+					     std::declval<stencil_t&>(),
+					     1));
+
+    using trialHyp_t =
+      decltype(prom::create_trial_column_subspace<state_t>(std::declval<basisHyp_t&&>(),
+							   std::declval<transHyp_t&&>(),
+							   true));
 
     using hessian_t   = Eigen::Matrix<scalar_t, -1, -1>; // TODO: generalize?
     using solver_tag  = pressio::linearsolvers::direct::HouseholderQR;
     using linsolver_t = pressio::linearsolvers::Solver<solver_tag, hessian_t>;
 
     using updaterHyp_t   = HypRedUpdater<scalar_t>;
-    using problemHyp_t   = decltype(plspg::create_unsteady_problem(pressio::ode::StepScheme(), std::declval<trialHyp_t&>(), std::declval<app_t&>(), std::declval<updaterHyp_t&>()));
-  using stepperHyp_t   = std::remove_reference_t<decltype(std::declval<problemHyp_t>().lspgStepper())>;
-    using nonlinsolverHyp_t = decltype(pressio::create_gauss_newton_solver(std::declval<stepperHyp_t&>(), std::declval<linsolver_t&>()));
+    using problemHyp_t   =
+      decltype(plspg::create_unsteady_problem(pressio::ode::StepScheme(),
+					      std::declval<trialHyp_t&>(),
+					      std::declval<app_t&>(),
+					      std::declval<updaterHyp_t&>()));
+
+    using stepperHyp_t = std::remove_reference_t<
+      decltype(std::declval<problemHyp_t>().lspgStepper())>;
+
+    using nonlinsolverHyp_t =
+      decltype(pressio::create_gauss_newton_solver(std::declval<stepperHyp_t&>(),
+						   std::declval<linsolver_t&>()));
 
 public:
-
     SubdomainLSPGHyper(
         const int domainIndex,
         const mesh_t & meshFull,
@@ -747,16 +765,29 @@ public:
 
     // Again, this has to be done because the hyper-reduced mesh
     //      has not been initialized on construction
-    void finalize_subdomain() final {
+    void finalize_subdomain() final
+    {
+	std::cout << "SubdomainLSPGHyper: finalize_subdomain: begin \n";
         SubdomainHyper<mesh_t, app_t, prob_t>::finalize_subdomain();
 
-        m_updaterHyper = std::make_shared<updaterHyp_t>(create_hyper_updater<mesh_t>(this->getDofPerCell(), this->m_stencilFile, this->m_sampleFile));
-        m_problemHyper = std::make_shared<problemHyp_t>(plspg::create_unsteady_problem(m_odeScheme, *(this->m_trialSpaceHyper), *(this->m_appHyper), *m_updaterHyper));
+        m_updaterHyper = std::make_shared<updaterHyp_t>
+	  (create_hyper_updater<mesh_t>(this->getDofPerCell(),
+					this->m_stencilFile,
+					this->m_sampleFile));
+
+        m_problemHyper = std::make_shared<problemHyp_t>
+	  (plspg::create_unsteady_problem(m_odeScheme,
+					  *(this->m_trialSpaceHyper),
+					  *(this->m_appHyper),
+					  *m_updaterHyper));
 
         m_stepperHyper = &m_problemHyper->lspgStepper();
 
         m_linSolverObjHyper = std::make_shared<linsolver_t>();
-        m_nonlinSolverHyper = std::make_shared<nonlinsolverHyp_t>(pressio::create_gauss_newton_solver(*m_stepperHyper, *m_linSolverObjHyper));
+
+        m_nonlinSolverHyper = std::make_shared<nonlinsolverHyp_t>
+	  (pressio::create_gauss_newton_solver(*m_stepperHyper, *m_linSolverObjHyper));
+	std::cout << "SubdomainLSPGHyper: finalize_subdomain: end \n";
     }
 
 // TODO: to protected
@@ -765,12 +796,9 @@ public:
     pressio::ode::StepScheme m_odeScheme;
     std::shared_ptr<updaterHyp_t> m_updaterHyper;
     std::shared_ptr<problemHyp_t> m_problemHyper;
-    // m_stepperHyper should NOT be a shared_ptr because you are not allocatign memory for it,
-   // you are just "viewing" an objet that is owned by m_problemHyper
     stepperHyp_t * m_stepperHyper;
-    std::shared_ptr<linsolver_t> m_linSolverObjHyper;
-    std::shared_ptr<nonlinsolverHyp_t> m_nonlinSolverHyper;
-
+  std::shared_ptr<linsolver_t> m_linSolverObjHyper;
+  std::shared_ptr<nonlinsolverHyp_t> m_nonlinSolverHyper;
 };
 
 //
