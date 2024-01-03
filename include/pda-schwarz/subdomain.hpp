@@ -608,15 +608,16 @@ public:
             BCFunctor<mesh_t>(m_bcRight), BCFunctor<mesh_t>(m_bcBack),
             m_icflag, m_userParams));
 
-        m_transHyper = std::make_shared<transHyp_t>(reduce_vector_on_stencil_mesh(m_transRead, m_stencilGids, m_appFull->numDofPerCell()));
-        m_basisHyper = std::make_shared<basisHyp_t>(reduce_matrix_on_stencil_mesh(m_basisRead, m_stencilGids, m_appFull->numDofPerCell()));
+        auto m_transHyper = reduce_vector_on_stencil_mesh(m_transRead, m_stencilGids, m_appFull->numDofPerCell());
+        auto m_basisHyper = reduce_matrix_on_stencil_mesh(m_basisRead, m_stencilGids, m_appFull->numDofPerCell());
         m_trialSpaceHyper = std::make_shared<trialHyp_t>(prom::create_trial_column_subspace<
-       state_t>(std::move(*m_basisHyper), std::move(*m_transHyper), true));
+							 state_t>(std::move(m_basisHyper),
+								  std::move(m_transHyper),
+								  true));
 
         m_stateStencil = m_appHyper->initialCondition();
-
         init_bc_state();
-
+	std::cout << "subh: " << &*(m_trialSpaceHyper) << " " << &*(m_appHyper) << '\n';
     }
 
     void allocateStorageForHistory(const int count){
@@ -678,8 +679,6 @@ public:
     basis_t m_basisRead;
     trial_t m_trialSpaceFull;
 
-    std::shared_ptr<transHyp_t> m_transHyper;
-    std::shared_ptr<basisHyp_t> m_basisHyper;
     std::shared_ptr<trialHyp_t> m_trialSpaceHyper;
 
 };
@@ -690,33 +689,16 @@ class SubdomainLSPGHyper: public SubdomainHyper<mesh_t, app_type, prob_t>
     using base_t = SubdomainHyper<mesh_t, app_type, prob_t>;
 
 public:
-    using app_t    = app_type;
+    using app_t    = typename base_t::app_t;
     using graph_t  = typename mesh_t::graph_t;
     using scalar_t = typename app_t::scalar_type;
     using state_t  = typename app_t::state_type;
 
-    using trans_t = typename base_t::trans_t;
-    using basis_t = typename base_t::basis_t;
-    using stencil_t  = typename base_t::stencil_t;
-
-    using transHyp_t =
-      decltype(reduce_vector_on_stencil_mesh(std::declval<trans_t&>(),
-					     std::declval<stencil_t&>(),
-					     1));
-
-    using basisHyp_t =
-      decltype(reduce_matrix_on_stencil_mesh(std::declval<basis_t&>(),
-					     std::declval<stencil_t&>(),
-					     1));
-
-    using trialHyp_t =
-      decltype(prom::create_trial_column_subspace<state_t>(std::declval<basisHyp_t&&>(),
-							   std::declval<transHyp_t&&>(),
-							   true));
-
     using hessian_t   = Eigen::Matrix<scalar_t, -1, -1>; // TODO: generalize?
     using solver_tag  = pressio::linearsolvers::direct::HouseholderQR;
     using linsolver_t = pressio::linearsolvers::Solver<solver_tag, hessian_t>;
+
+    using trialHyp_t = typename base_t::trialHyp_t;
 
     using updaterHyp_t   = HypRedUpdater<scalar_t>;
     using problemHyp_t   =
@@ -767,10 +749,10 @@ public:
     //      has not been initialized on construction
     void finalize_subdomain() final
     {
-	std::cout << "SubdomainLSPGHyper: finalize_subdomain: begin \n";
+      std::cout << "SubdomainLSPGHyper: finalize_subdomain: begin \n";
         SubdomainHyper<mesh_t, app_t, prob_t>::finalize_subdomain();
 
-        m_updaterHyper = std::make_shared<updaterHyp_t>
+	m_updaterHyper = std::make_shared<updaterHyp_t>
 	  (create_hyper_updater<mesh_t>(this->getDofPerCell(),
 					this->m_stencilFile,
 					this->m_sampleFile));
@@ -792,13 +774,12 @@ public:
 
 // TODO: to protected
 public:
-
     pressio::ode::StepScheme m_odeScheme;
     std::shared_ptr<updaterHyp_t> m_updaterHyper;
     std::shared_ptr<problemHyp_t> m_problemHyper;
     stepperHyp_t * m_stepperHyper;
-  std::shared_ptr<linsolver_t> m_linSolverObjHyper;
-  std::shared_ptr<nonlinsolverHyp_t> m_nonlinSolverHyper;
+    std::shared_ptr<linsolver_t> m_linSolverObjHyper;
+    std::shared_ptr<nonlinsolverHyp_t> m_nonlinSolverHyper;
 };
 
 //
