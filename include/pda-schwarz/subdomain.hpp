@@ -617,7 +617,7 @@ public:
 
         m_stateStencil = m_appHyper->initialCondition();
         init_bc_state();
-	std::cout << "subh: " << &*(m_trialSpaceHyper) << " " << &*(m_appHyper) << '\n';
+
     }
 
     void allocateStorageForHistory(const int count){
@@ -740,8 +740,7 @@ public:
     }
 
     void doStep(pode::StepStartAt<double> startTime, pode::StepCount step, pode::StepSize<double> dt) final {
-        // m_stepperHyper(this->m_stateReduced, startTime, step, dt, m_nonlinSolverHyper);
-        // m_problemHyper->lspgStepper()(this->m_stateReduced, startTime, step, dt, *m_nonlinSolverHyper);
+        (*m_stepperHyper)(this->m_stateReduced, startTime, step, dt, *m_nonlinSolverHyper);
         throw std::runtime_error("SubdomainLSPGHyper doStep has not been fixed");
     }
 
@@ -749,7 +748,6 @@ public:
     //      has not been initialized on construction
     void finalize_subdomain() final
     {
-      std::cout << "SubdomainLSPGHyper: finalize_subdomain: begin \n";
         SubdomainHyper<mesh_t, app_t, prob_t>::finalize_subdomain();
 
 	m_updaterHyper = std::make_shared<updaterHyp_t>
@@ -763,13 +761,12 @@ public:
 					  *(this->m_appHyper),
 					  *m_updaterHyper));
 
-        m_stepperHyper = &m_problemHyper->lspgStepper();
+        m_stepperHyper = &(m_problemHyper->lspgStepper());
 
         m_linSolverObjHyper = std::make_shared<linsolver_t>();
 
         m_nonlinSolverHyper = std::make_shared<nonlinsolverHyp_t>
 	  (pressio::create_gauss_newton_solver(*m_stepperHyper, *m_linSolverObjHyper));
-	std::cout << "SubdomainLSPGHyper: finalize_subdomain: end \n";
     }
 
 // TODO: to protected
