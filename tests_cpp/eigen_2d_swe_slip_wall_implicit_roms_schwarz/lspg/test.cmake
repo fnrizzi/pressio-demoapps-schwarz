@@ -1,11 +1,19 @@
 include(FindUnixCommands)
 
-set(CMD "python3 ${DECOMPDRIVER} --meshScript ${MESHDRIVER} -n 50 50 --outDir ${OUTDIR} -s ${STENCILVAL} --bounds -5.0 5.0 -5.0 5.0 --numDoms 2 2 --overlap 10")
+set(CMD "python3 ${MESHDRIVER} -n 30 30 --outDir ${OUTDIR}/mesh_mono -s ${STENCILVAL} --bounds -5.0 5.0 -5.0 5.0")
 execute_process(COMMAND ${BASH} -c ${CMD} RESULT_VARIABLE RES)
 if(RES)
-  message(FATAL_ERROR "Mesh generation failed")
+  message(FATAL_ERROR "Monolithic mesh generation failed")
 else()
-  message("Mesh generation succeeded!")
+  message("Monolithic mesh generation succeeded!")
+endif()
+
+set(CMD "python3 ${DECOMPDRIVER} --meshScript ${MESHDRIVER} -n 30 30 --outDir ${OUTDIR}/mesh_decomp -s ${STENCILVAL} --bounds -5.0 5.0 -5.0 5.0 --numDoms 2 2 --overlap 6")
+execute_process(COMMAND ${BASH} -c ${CMD} RESULT_VARIABLE RES)
+if(RES)
+  message(FATAL_ERROR "Decomposed mesh generation failed")
+else()
+  message("Decomposed mesh generation succeeded!")
 endif()
 
 set(CMD "python3 ./gen_trial_space.py")

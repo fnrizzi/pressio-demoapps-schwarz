@@ -30,8 +30,8 @@ jobs:
         config:
           - { cxx: g++,     mode: Release }
           - { cxx: clang++, mode: Release }
-          #- { cxx: g++,     mode: Debug }
-          #- { cxx: clang++, mode: Debug }
+          - { cxx: g++,     mode: Debug }
+          - { cxx: clang++, mode: Debug }
 
     env: # environment variables available to all steps
       CXX: ${{ matrix.config.cxx }}

@@ -38,11 +38,11 @@ int main()
     auto NonLinSolver = pressio::create_newton_solver(stepperObj, linSolverObj);
     NonLinSolver.setStopTolerance(1e-5);
 
-    FomObserver<state_t> Obs("swe_slipWall2d_solution.bin", 10);
+    FomObserver<state_t> Obs("swe_slipWall2d_solution.bin", 1);
     RuntimeObserver Obs_run("runtime.bin");
 
-    const double tf = 5;
-    const double dt = 0.01;
+    const double tf = 1.0;
+    const double dt = 0.02;
     const auto Nsteps = pressio::ode::StepCount(tf/dt);
 
     auto runtimeStart = std::chrono::high_resolution_clock::now();
