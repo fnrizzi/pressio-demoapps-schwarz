@@ -434,9 +434,9 @@ public:
         const std::string & basisRoot,
         const int nmodes)
     : base_t(domainIndex, mesh,
-	     bcLeft, bcFront, bcRight, bcBack,
-	     probId, odeScheme, order, icflag, userParams,
-	     transRoot, basisRoot, nmodes)
+             bcLeft, bcFront, bcRight, bcBack,
+             probId, odeScheme, order, icflag, userParams,
+             transRoot, basisRoot, nmodes)
     , m_problem(plspg::create_unsteady_problem(odeScheme, this->m_trialSpace, *(this->m_app)))
     , m_stepper(m_problem.lspgStepper())
     , m_linSolverObj(std::make_shared<linsolver_t>())
@@ -611,9 +611,9 @@ public:
         auto m_transHyper = reduce_vector_on_stencil_mesh(m_transRead, m_stencilGids, m_appFull->numDofPerCell());
         auto m_basisHyper = reduce_matrix_on_stencil_mesh(m_basisRead, m_stencilGids, m_appFull->numDofPerCell());
         m_trialSpaceHyper = std::make_shared<trialHyp_t>(prom::create_trial_column_subspace<
-							 state_t>(std::move(m_basisHyper),
-								  std::move(m_transHyper),
-								  true));
+                                                         state_t>(std::move(m_basisHyper),
+                                                         std::move(m_transHyper),
+                                                         true));
 
         m_stateStencil = m_appHyper->initialCondition();
         init_bc_state();
@@ -700,19 +700,19 @@ public:
 
     using trialHyp_t = typename base_t::trialHyp_t;
 
-    using updaterHyp_t   = HypRedUpdater<scalar_t>;
-    using problemHyp_t   =
+    using updaterHyp_t = HypRedUpdater<scalar_t>;
+    using problemHyp_t =
       decltype(plspg::create_unsteady_problem(pressio::ode::StepScheme(),
-					      std::declval<trialHyp_t&>(),
-					      std::declval<app_t&>(),
-					      std::declval<updaterHyp_t&>()));
+                                              std::declval<trialHyp_t&>(),
+                                              std::declval<app_t&>(),
+                                              std::declval<updaterHyp_t&>()));
 
     using stepperHyp_t = std::remove_reference_t<
-      decltype(std::declval<problemHyp_t>().lspgStepper())>;
+        decltype(std::declval<problemHyp_t>().lspgStepper())>;
 
     using nonlinsolverHyp_t =
-      decltype(pressio::create_gauss_newton_solver(std::declval<stepperHyp_t&>(),
-						   std::declval<linsolver_t&>()));
+        decltype(pressio::create_gauss_newton_solver(std::declval<stepperHyp_t&>(),
+            std::declval<linsolver_t&>()));
 
 public:
     SubdomainLSPGHyper(
@@ -731,17 +731,16 @@ public:
         const mesh_t & meshHyper,
         const std::string & meshPathHyper)
     : base_t(domainIndex, meshFull,
-	     bcLeft, bcFront, bcRight, bcBack,
-	     probId, odeScheme, order, icflag, userParams,
-	     transRoot, basisRoot, nmodes,
-	     meshHyper, meshPathHyper)
+             bcLeft, bcFront, bcRight, bcBack,
+             probId, odeScheme, order, icflag, userParams,
+             transRoot, basisRoot, nmodes,
+             meshHyper, meshPathHyper)
     {
         m_odeScheme = odeScheme;
     }
 
     void doStep(pode::StepStartAt<double> startTime, pode::StepCount step, pode::StepSize<double> dt) final {
         (*m_stepperHyper)(this->m_stateReduced, startTime, step, dt, *m_nonlinSolverHyper);
-        throw std::runtime_error("SubdomainLSPGHyper doStep has not been fixed");
     }
 
     // Again, this has to be done because the hyper-reduced mesh
@@ -750,23 +749,23 @@ public:
     {
         SubdomainHyper<mesh_t, app_t, prob_t>::finalize_subdomain();
 
-	m_updaterHyper = std::make_shared<updaterHyp_t>
-	  (create_hyper_updater<mesh_t>(this->getDofPerCell(),
-					this->m_stencilFile,
-					this->m_sampleFile));
+        m_updaterHyper = std::make_shared<updaterHyp_t>
+            (create_hyper_updater<mesh_t>(this->getDofPerCell(),
+                                          this->m_stencilFile,
+                                          this->m_sampleFile));
 
         m_problemHyper = std::make_shared<problemHyp_t>
-	  (plspg::create_unsteady_problem(m_odeScheme,
-					  *(this->m_trialSpaceHyper),
-					  *(this->m_appHyper),
-					  *m_updaterHyper));
+            (plspg::create_unsteady_problem(m_odeScheme,
+                                            *(this->m_trialSpaceHyper),
+                                            *(this->m_appHyper),
+                                            *m_updaterHyper));
 
         m_stepperHyper = &(m_problemHyper->lspgStepper());
 
         m_linSolverObjHyper = std::make_shared<linsolver_t>();
 
         m_nonlinSolverHyper = std::make_shared<nonlinsolverHyp_t>
-	  (pressio::create_gauss_newton_solver(*m_stepperHyper, *m_linSolverObjHyper));
+            (pressio::create_gauss_newton_solver(*m_stepperHyper, *m_linSolverObjHyper));
     }
 
 // TODO: to protected
