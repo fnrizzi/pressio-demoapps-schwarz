@@ -9,7 +9,7 @@ exe_dir = os.path.dirname(os.path.realpath(__file__))
 order = os.path.basename(os.path.normpath(exe_dir))
 
 data = np.loadtxt(f"../../../eigen_2d_swe_slip_wall_implicit/{order}/solution_full_gold.txt")
-data = np.reshape(data, (50, 50, 3, -1), order="C")
+data = np.reshape(data, (30, 30, 3, -1), order="C")
 data = np.transpose(data, (1, 0, 3, 2))
 
 gen_pod_bases(

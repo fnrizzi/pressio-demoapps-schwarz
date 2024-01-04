@@ -5,6 +5,6 @@ gen_sample_mesh(
     "random",
     "./full_mesh",
     "./sample_mesh",
-    percpoints=0.1,
-    randseed=0,
+    percpoints=0.2,
+    randseed=2,
 )
