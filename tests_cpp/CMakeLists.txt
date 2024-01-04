@@ -7,8 +7,10 @@ set(TESTWENO3 TRUE)
 include_directories(
   ${PDA_SOURCE}/tpls/eigen3
   ${PDA_SOURCE}/include
-  ${PDA_SOURCE}/tests_cpp/pressio/include
+  ${PRESSIO_SOURCE}/include
   ${CMAKE_CURRENT_SOURCE_DIR}/../include)
+
+add_compile_definitions(PRESSIO_ENABLE_TPL_EIGEN PRESSIO_ENABLE_DEBUG_PRINT)
 
 # ---------------------------------------------------------
 # 2d problems

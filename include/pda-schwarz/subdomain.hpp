@@ -91,13 +91,14 @@ public:
 template<class mesh_t, class app_type, class prob_t>
 class SubdomainFOM: public SubdomainBase<mesh_t, typename app_type::state_type>
 {
+    using base_t = SubdomainBase<mesh_t, typename app_type::state_type>;
+
 public:
     using app_t   = app_type;
     using graph_t = typename mesh_t::graph_t;
     using state_t = typename app_t::state_type;
     using jacob_t = typename app_t::jacobian_type;
-
-    using stencil_t  = decltype(create_cell_gids_vector_and_fill_from_ascii(std::declval<std::string>()));
+    using stencil_t = typename base_t::stencil_t;
 
     using stepper_t  =
         decltype(pressio::ode::create_implicit_stepper(pressio::ode::StepScheme(),
@@ -244,12 +245,14 @@ public:
 template<class mesh_t, class app_type, class prob_t>
 class SubdomainROM: public SubdomainBase<mesh_t, typename app_type::state_type>
 {
+    using base_t = SubdomainBase<mesh_t, typename app_type::state_type>;
+
+public:
     using app_t    = app_type;
     using graph_t = typename mesh_t::graph_t;
     using scalar_t = typename app_t::scalar_type;
     using state_t  = typename app_t::state_type;
-
-    using stencil_t  = decltype(create_cell_gids_vector_and_fill_from_ascii(std::declval<std::string>()));
+    using stencil_t = typename base_t::stencil_t;
 
     using trans_t = decltype(read_vector_from_binary<scalar_t>(std::declval<std::string>()));
     using basis_t = decltype(read_matrix_from_binary<scalar_t>(std::declval<std::string>(), std::declval<int>()));
@@ -395,17 +398,17 @@ protected:
 template<class mesh_t, class app_type, class prob_t>
 class SubdomainLSPG: public SubdomainROM<mesh_t, app_type, prob_t>
 {
+    using base_t = SubdomainROM<mesh_t, app_type, prob_t>;
 
-private:
+public:
     using app_t    = app_type;
     using graph_t  = typename mesh_t::graph_t;
     using scalar_t = typename app_t::scalar_type;
     using state_t  = typename app_t::state_type;
 
-    using trans_t = decltype(read_vector_from_binary<scalar_t>(std::declval<std::string>()));
-    using basis_t = decltype(read_matrix_from_binary<scalar_t>(std::declval<std::string>(), std::declval<int>()));
-    using trial_t = decltype(prom::create_trial_column_subspace<
-        state_t>(std::declval<basis_t&&>(), std::declval<trans_t&&>(), true));
+    using trans_t = typename base_t::trans_t;
+    using basis_t = typename base_t::basis_t;
+    using trial_t = typename base_t::trial_t;
 
     using hessian_t   = Eigen::Matrix<scalar_t, -1, -1>; // TODO: generalize?
     using solver_tag  = pressio::linearsolvers::direct::HouseholderQR;
@@ -430,11 +433,10 @@ public:
         const std::string & transRoot,
         const std::string & basisRoot,
         const int nmodes)
-    : SubdomainROM<mesh_t, app_type, prob_t>::SubdomainROM(
-        domainIndex, mesh,
-        bcLeft, bcFront, bcRight, bcBack,
-        probId, odeScheme, order, icflag, userParams,
-        transRoot, basisRoot, nmodes)
+    : base_t(domainIndex, mesh,
+             bcLeft, bcFront, bcRight, bcBack,
+             probId, odeScheme, order, icflag, userParams,
+             transRoot, basisRoot, nmodes)
     , m_problem(plspg::create_unsteady_problem(odeScheme, this->m_trialSpace, *(this->m_app)))
     , m_stepper(m_problem.lspgStepper())
     , m_linSolverObj(std::make_shared<linsolver_t>())
@@ -461,7 +463,9 @@ class SubdomainHyper: public SubdomainBase<mesh_t, typename app_type::state_type
     // TODO: really need to add some error checking
     //      to protect against the circuitious initialization
 
-private:
+    using base_t = SubdomainBase<mesh_t, typename app_type::state_type>;
+
+public:
     using app_t    = app_type;
     using graph_t  = typename mesh_t::graph_t;
     using scalar_t = typename app_t::scalar_type;
@@ -472,7 +476,7 @@ private:
     using trial_t = decltype(prom::create_trial_column_subspace<
         state_t>(std::declval<basis_t&&>(), std::declval<trans_t&&>(), true));
 
-    using stencil_t  = decltype(create_cell_gids_vector_and_fill_from_ascii(std::declval<std::string>()));
+    using stencil_t  = typename base_t::stencil_t;
     using transHyp_t = decltype(reduce_vector_on_stencil_mesh(std::declval<trans_t&>(), std::declval<stencil_t&>(), std::declval<int>()));
     using basisHyp_t = decltype(reduce_matrix_on_stencil_mesh(std::declval<basis_t&>(), std::declval<stencil_t&>(), std::declval<int>()));
     using trialHyp_t = decltype(prom::create_trial_column_subspace<
@@ -604,13 +608,14 @@ public:
             BCFunctor<mesh_t>(m_bcRight), BCFunctor<mesh_t>(m_bcBack),
             m_icflag, m_userParams));
 
-        m_transHyper = std::make_shared<transHyp_t>(reduce_vector_on_stencil_mesh(m_transRead, m_stencilGids, m_appFull->numDofPerCell()));
-        m_basisHyper = std::make_shared<basisHyp_t>(reduce_matrix_on_stencil_mesh(m_basisRead, m_stencilGids, m_appFull->numDofPerCell()));
+        auto m_transHyper = reduce_vector_on_stencil_mesh(m_transRead, m_stencilGids, m_appFull->numDofPerCell());
+        auto m_basisHyper = reduce_matrix_on_stencil_mesh(m_basisRead, m_stencilGids, m_appFull->numDofPerCell());
         m_trialSpaceHyper = std::make_shared<trialHyp_t>(prom::create_trial_column_subspace<
-       state_t>(std::move(*m_basisHyper), std::move(*m_transHyper), true));
+                                                         state_t>(std::move(m_basisHyper),
+                                                         std::move(m_transHyper),
+                                                         true));
 
         m_stateStencil = m_appHyper->initialCondition();
-
         init_bc_state();
 
     }
@@ -674,8 +679,6 @@ public:
     basis_t m_basisRead;
     trial_t m_trialSpaceFull;
 
-    std::shared_ptr<transHyp_t> m_transHyper;
-    std::shared_ptr<basisHyp_t> m_basisHyper;
     std::shared_ptr<trialHyp_t> m_trialSpaceHyper;
 
 };
@@ -683,32 +686,35 @@ public:
 template<class mesh_t, class app_type, class prob_t>
 class SubdomainLSPGHyper: public SubdomainHyper<mesh_t, app_type, prob_t>
 {
+    using base_t = SubdomainHyper<mesh_t, app_type, prob_t>;
 
-private:
-    using app_t    = app_type;
+public:
+    using app_t    = typename base_t::app_t;
     using graph_t  = typename mesh_t::graph_t;
     using scalar_t = typename app_t::scalar_type;
     using state_t  = typename app_t::state_type;
-
-    using trans_t = decltype(read_vector_from_binary<scalar_t>(std::declval<std::string>()));
-    using basis_t = decltype(read_matrix_from_binary<scalar_t>(std::declval<std::string>(), std::declval<int>()));
-    using stencil_t  = decltype(create_cell_gids_vector_and_fill_from_ascii(std::declval<std::string>()));
-    using transHyp_t = decltype(reduce_vector_on_stencil_mesh(std::declval<trans_t&>(), std::declval<stencil_t&>(), 1));
-    using basisHyp_t = decltype(reduce_matrix_on_stencil_mesh(std::declval<basis_t&>(), std::declval<stencil_t&>(), 1));
-    using trialHyp_t = decltype(prom::create_trial_column_subspace<
-        state_t>(std::declval<basisHyp_t&&>(), std::declval<transHyp_t&&>(), true));
 
     using hessian_t   = Eigen::Matrix<scalar_t, -1, -1>; // TODO: generalize?
     using solver_tag  = pressio::linearsolvers::direct::HouseholderQR;
     using linsolver_t = pressio::linearsolvers::Solver<solver_tag, hessian_t>;
 
-    using updaterHyp_t   = HypRedUpdater<scalar_t>;
-    using problemHyp_t   = decltype(plspg::create_unsteady_problem(pressio::ode::StepScheme(), std::declval<trialHyp_t&>(), std::declval<app_t&>(), std::declval<updaterHyp_t&>()));
-    using stepperHyp_t   = decltype(std::declval<problemHyp_t>().lspgStepper());
-    using nonlinsolverHyp_t = decltype(pressio::create_gauss_newton_solver(std::declval<stepperHyp_t&>(), std::declval<linsolver_t&>()));
+    using trialHyp_t = typename base_t::trialHyp_t;
+
+    using updaterHyp_t = HypRedUpdater<scalar_t>;
+    using problemHyp_t =
+      decltype(plspg::create_unsteady_problem(pressio::ode::StepScheme(),
+                                              std::declval<trialHyp_t&>(),
+                                              std::declval<app_t&>(),
+                                              std::declval<updaterHyp_t&>()));
+
+    using stepperHyp_t = std::remove_reference_t<
+        decltype(std::declval<problemHyp_t>().lspgStepper())>;
+
+    using nonlinsolverHyp_t =
+        decltype(pressio::create_gauss_newton_solver(std::declval<stepperHyp_t&>(),
+            std::declval<linsolver_t&>()));
 
 public:
-
     SubdomainLSPGHyper(
         const int domainIndex,
         const mesh_t & meshFull,
@@ -724,47 +730,52 @@ public:
         const int nmodes,
         const mesh_t & meshHyper,
         const std::string & meshPathHyper)
-    : SubdomainHyper<mesh_t, app_type, prob_t>::SubdomainHyper(
-        domainIndex, meshFull,
-        bcLeft, bcFront, bcRight, bcBack,
-        probId, odeScheme, order, icflag, userParams,
-        transRoot, basisRoot, nmodes,
-        meshHyper, meshPathHyper)
+    : base_t(domainIndex, meshFull,
+             bcLeft, bcFront, bcRight, bcBack,
+             probId, odeScheme, order, icflag, userParams,
+             transRoot, basisRoot, nmodes,
+             meshHyper, meshPathHyper)
     {
         m_odeScheme = odeScheme;
     }
 
     void doStep(pode::StepStartAt<double> startTime, pode::StepCount step, pode::StepSize<double> dt) final {
-        // m_stepperHyper(this->m_stateReduced, startTime, step, dt, m_nonlinSolverHyper);
-        // m_problemHyper->lspgStepper()(this->m_stateReduced, startTime, step, dt, *m_nonlinSolverHyper);
-        throw std::runtime_error("SubdomainLSPGHyper doStep has not been fixed");
+        (*m_stepperHyper)(this->m_stateReduced, startTime, step, dt, *m_nonlinSolverHyper);
     }
 
     // Again, this has to be done because the hyper-reduced mesh
     //      has not been initialized on construction
-    void finalize_subdomain() final {
+    void finalize_subdomain() final
+    {
         SubdomainHyper<mesh_t, app_t, prob_t>::finalize_subdomain();
 
-        m_updaterHyper = std::make_shared<updaterHyp_t>(create_hyper_updater<mesh_t>(this->getDofPerCell(), this->m_stencilFile, this->m_sampleFile));
-        m_problemHyper = std::make_shared<problemHyp_t>(plspg::create_unsteady_problem(m_odeScheme, *(this->m_trialSpaceHyper), *(this->m_appHyper), *m_updaterHyper));
+        m_updaterHyper = std::make_shared<updaterHyp_t>
+            (create_hyper_updater<mesh_t>(this->getDofPerCell(),
+                                          this->m_stencilFile,
+                                          this->m_sampleFile));
 
-        // THIS IS BROKEN
-        // m_stepperHyper = std::make_shared<stepperHyp_t>(m_problemHyper->lspgStepperPtr());
+        m_problemHyper = std::make_shared<problemHyp_t>
+            (plspg::create_unsteady_problem(m_odeScheme,
+                                            *(this->m_trialSpaceHyper),
+                                            *(this->m_appHyper),
+                                            *m_updaterHyper));
 
-        // m_linSolverObjHyper = std::make_shared<linsolver_t>();
-        // m_nonlinSolverHyper = std::make_shared<nonlinsolverHyp_t>(pressio::create_gauss_newton_solver(*(*m_stepperHyper), *m_linSolverObjHyper));
+        m_stepperHyper = &(m_problemHyper->lspgStepper());
+
+        m_linSolverObjHyper = std::make_shared<linsolver_t>();
+
+        m_nonlinSolverHyper = std::make_shared<nonlinsolverHyp_t>
+            (pressio::create_gauss_newton_solver(*m_stepperHyper, *m_linSolverObjHyper));
     }
 
 // TODO: to protected
 public:
-
     pressio::ode::StepScheme m_odeScheme;
     std::shared_ptr<updaterHyp_t> m_updaterHyper;
     std::shared_ptr<problemHyp_t> m_problemHyper;
-    // std::shared_ptr<stepperHyp_t> m_stepperHyper;
-    // std::shared_ptr<linsolver_t> m_linSolverObjHyper;
-    // std::shared_ptr<nonlinsolverHyp_t> m_nonlinSolverHyper;
-
+    stepperHyp_t * m_stepperHyper;
+    std::shared_ptr<linsolver_t> m_linSolverObjHyper;
+    std::shared_ptr<nonlinsolverHyp_t> m_nonlinSolverHyper;
 };
 
 //
