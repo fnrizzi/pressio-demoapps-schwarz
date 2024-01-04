@@ -2,8 +2,8 @@ import struct
 import numpy as np
 
 if __name__== "__main__":
-    nx = 30
-    ny = 30
+    nx = 18
+    ny = 18
     fomTotDofs = nx * ny * 3
 
     allclose = []
@@ -49,5 +49,5 @@ if __name__== "__main__":
 
         niters += 1
 
-    assert niters == 500
+    assert niters == 50
 

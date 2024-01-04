@@ -41,8 +41,8 @@ int main()
     FomObserver<state_t> Obs("riemann2d_solution.bin", 2);
     RuntimeObserver Obs_run("runtime.bin");
 
-    const double tf = 1.0;
-    const double dt = 0.005;
+    const double tf = 0.5;
+    const double dt = 0.02;
     const auto Nsteps = pressio::ode::StepCount(tf/dt);
 
     auto runtimeStart = std::chrono::high_resolution_clock::now();

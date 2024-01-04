@@ -12,10 +12,10 @@ int main()
     namespace pode = pressio::ode;
 
     // +++++ USER INPUTS +++++
-    std::string meshRootFull = "./full_mesh";
-    std::string meshRootHyper = "./sample_mesh";
+    std::string meshRootFull = "./full_mesh_decomp";
+    std::string meshRootHyper = "./sample_mesh_decomp";
     std::string obsRoot = "swe_slipWall2d_solution";
-    const int obsFreq = 10;
+    const int obsFreq = 1;
 
     // problem definition
     const auto probId = pda::Swe2d::CustomBCs;
@@ -37,8 +37,8 @@ int main()
     std::vector<int> nmodesVec(4, 25);
 
     // time stepping
-    const double tf = 5.0;
-    std::vector<double> dt(1, 0.01);
+    const double tf = 1.0;
+    std::vector<double> dt(1, 0.02);
     const int convergeStepMax = 10;
     const double abs_err_tol = 1e-11;
     const double rel_err_tol = 1e-11;

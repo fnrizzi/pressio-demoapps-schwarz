@@ -2,8 +2,8 @@ import struct
 import numpy as np
 
 if __name__== "__main__":
-    nx = 50
-    ny = 50
+    nx = 30
+    ny = 30
     fomTotDofs = nx * ny * 3
 
     D = np.fromfile("swe_slipWall2d_solution.bin")

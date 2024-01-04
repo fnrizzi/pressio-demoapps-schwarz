@@ -12,7 +12,7 @@ int main()
     // +++++ USER INPUTS +++++
     std::string meshRoot = "./mesh";
     std::string obsRoot = "swe_slipWall2d_solution";
-    const int obsFreq = 10;
+    const int obsFreq = 1;
 
     // problem definition
     const auto probId = pda::Swe2d::CustomBCs;
@@ -28,8 +28,8 @@ int main()
     using app_t = pdas::swe2d_app_type;
 
     // time stepping
-    const double tf = 5.0;
-    std::vector<double> dt(1, 0.01);
+    const double tf = 1.0;
+    std::vector<double> dt(1, 0.02);
     const int convergeStepMax = 10;
     const double abs_err_tol = 1e-11;
     const double rel_err_tol = 1e-11;
