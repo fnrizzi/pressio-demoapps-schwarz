@@ -14,12 +14,12 @@ data = np.transpose(data, (1, 0, 3, 2))
 
 gen_pod_bases(
     outdir="./trial_space",
-    meshdir=f"../../../eigen_2d_swe_slip_wall_implicit/{order}/",
+    meshdir=f"./mesh_mono",
     datalist=[data],
     nvars=3,
     dataroot="swe_slipWall2d_solution",
     pod_decomp=True,
-    meshdir_decomp="./mesh",
+    meshdir_decomp="./mesh_decomp",
     center_method="init_cond",
     norm_method="one",
 )

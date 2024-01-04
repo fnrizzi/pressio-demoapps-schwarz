@@ -35,19 +35,19 @@ fom_data, _ = load_field_data(
     f"../../../eigen_2d_swe_slip_wall_implicit/{order}/",
     "swe_slipWall2d_solution",
     3,
-    meshdir=f"../../../eigen_2d_swe_slip_wall_implicit/{order}/",
+    meshdir="./mesh_mono",
 )
 
 rom_data, _ = load_field_data(
     "./",
     "swe_slipWall2d_solution",
     3,
-    meshdir="./mesh",
+    meshdir="./mesh_decomp",
 )
 
 plot_contours(
     varplot,
-    meshdirs=[f"../../../eigen_2d_swe_slip_wall_implicit/{order}/", "./mesh",],
+    meshdirs=["./mesh_mono", "./mesh_decomp",],
     datalist=[fom_data, rom_data],
     nvars=3,
     dataroot="swe_slipWall2d_solution",

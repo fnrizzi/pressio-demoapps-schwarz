@@ -11,7 +11,7 @@ int main()
     namespace pode = pressio::ode;
 
     // +++++ USER INPUTS +++++
-    std::string meshRoot = "./mesh";
+    std::string meshRoot = "./mesh_decomp";
     std::string obsRoot = "swe_slipWall2d_solution";
     const int obsFreq = 1;
 

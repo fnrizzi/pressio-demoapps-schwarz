@@ -30,10 +30,9 @@ elif varplot == 2:
     skiplevels = 2
     contourbounds = [-0.05, 0.05]
 
-# TODO: modify monolithic directory to correct stencil order
 plot_contours(
     varplot,
-    meshdirs=[f"../../../eigen_2d_swe_slip_wall_implicit/{order}/", "./full_mesh",],
+    meshdirs=["./full_mesh_mono", "./full_mesh_decomp",],
     datadirs=[f"../../../eigen_2d_swe_slip_wall_implicit/{order}/", "./"],
     nvars=3,
     dataroot="swe_slipWall2d_solution",
