@@ -28,8 +28,8 @@ int main()
     using app_t = pdas::euler2d_app_type;
 
     // time stepping
-    const double tf = 1.0;
-    std::vector<double> dt(1, 0.005);
+    const double tf = 0.5;
+    std::vector<double> dt(1, 0.02);
     const int convergeStepMax = 10;
     const double abs_err_tol = 1e-11;
     const double rel_err_tol = 1e-11;

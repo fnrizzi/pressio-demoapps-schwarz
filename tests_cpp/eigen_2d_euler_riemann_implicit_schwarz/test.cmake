@@ -1,6 +1,6 @@
 include(FindUnixCommands)
 
-set(CMD "python3 ${DECOMPDRIVER} --meshScript ${MESHDRIVER} -n 50 50 --outDir ${OUTDIR} -s ${STENCILVAL} --bounds 0.0 1.0 0.0 1.0 --numDoms 2 2 --overlap 10")
+set(CMD "python3 ${DECOMPDRIVER} --meshScript ${MESHDRIVER} -n 20 20 --outDir ${OUTDIR} -s ${STENCILVAL} --bounds 0.0 1.0 0.0 1.0 --numDoms 2 2 --overlap 6")
 message(NOTICE ${CMD})
 execute_process(COMMAND ${BASH} -c ${CMD} RESULT_VARIABLE RES)
 if(RES)

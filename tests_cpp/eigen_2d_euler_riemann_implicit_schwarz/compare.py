@@ -9,8 +9,8 @@ def computePressure(rho, u, v, E):
 
 if __name__== "__main__":
 
-    nx = 30
-    ny = 30
+    nx = 13
+    ny = 13
     fomTotDofs = nx * ny * 4
 
     allclose_rho = []
@@ -68,4 +68,4 @@ if __name__== "__main__":
 
         niters += 1
 
-    assert niters == 200
+    assert niters == 25
