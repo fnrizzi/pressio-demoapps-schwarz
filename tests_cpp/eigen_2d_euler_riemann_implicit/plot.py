@@ -41,6 +41,6 @@ plot_contours(
     nlevels=nlevels,
     skiplevels=skiplevels,
     contourbounds=contourbounds,
-    plotskip=2,
+    plotskip=1,
     varlabel=varlabel,
 )
