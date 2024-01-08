@@ -16,6 +16,7 @@
 #include <sys/stat.h>
 #include <unistd.h>
 #include <iomanip>
+#include <filesystem>
 
 
 namespace pdaschwarz{
@@ -467,7 +468,7 @@ private:
         // finally, delete temporary directory
         // TODO: this is not actually deleting it, only removes empty directories
         // Need to figure out std::filesystem for remove_all()
-        ::rmdir(tempdir.c_str());
+        std::filesystem::remove_all(tempdir);
 
     }
 

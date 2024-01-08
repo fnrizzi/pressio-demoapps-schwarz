@@ -12,6 +12,8 @@ include_directories(
 
 add_compile_definitions(PRESSIO_ENABLE_TPL_EIGEN PRESSIO_ENABLE_DEBUG_PRINT)
 
+link_libraries(stdc++fs)
+
 # ---------------------------------------------------------
 # 2d problems
 # ---------------------------------------------------------
@@ -24,3 +26,4 @@ add_subdirectory(eigen_2d_swe_slip_wall_implicit_roms)
 add_subdirectory(eigen_2d_swe_slip_wall_implicit_roms_schwarz)
 add_subdirectory(eigen_2d_swe_slip_wall_implicit_hproms)
 add_subdirectory(eigen_2d_swe_slip_wall_implicit_hproms_schwarz)
+#add_subdirectory(eigen_2d_swe_slip_wall_implicit_mixed)
