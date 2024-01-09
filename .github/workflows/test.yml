@@ -37,12 +37,21 @@ jobs:
       CXX: ${{ matrix.config.cxx }}
       APT_PACKAGES: python3 pip python-is-python3 g++ clang gpg wget
       PIP_PACKAGES: numpy scipy matplotlib
+      PRESSIO_SRC: ${{ github.workspace }}/pressio
       PDA_SRC: ${{ github.workspace }}/pressio-demoapps
       BUILD_DIR: ${{ github.workspace }}/build
 
     steps:
       - name: Clone pressio-demoapps-schwarz repository
         uses: actions/checkout@v2
+
+      # TODO: switch to develop when PR #655 is merged
+      - name: Clone pressio repository
+        uses: actions/checkout@v2
+        with:
+          repository: Pressio/pressio
+          path: pressio-demoapps
+          ref: use_dynalloc_rom_policy
 
       - name: Clone pressio-demoapps repository, develop branch
         uses: actions/checkout@v2
@@ -76,6 +85,7 @@ jobs:
           echo $(which $CXX) --version
           $CXX --version
           echo ======================================================
+          echo pressio directory: $PRESSIO_SRC
           echo pressio-demoapps directory: $PDA_SRC
           echo Build directory: $BUILD_DIR
           echo ======================================================
@@ -99,6 +109,7 @@ jobs:
             -DCMAKE_VERBOSE_MAKEFILE:BOOL=ON \
             -DCMAKE_BUILD_TYPE:STRING=${{ matrix.config.mode }} \
             -DCMAKE_CXX_FLAGS="-Wall" \
+            -DPRESSIO_SOURCE=${PRESSIO_SRC}
             -DPDA_SOURCE=${PDA_SRC} \
             -B $BUILD_DIR -S ${{ github.workspace }}
             #-DCMAKE_CXX_FLAGS="-Wall -Werror" \
