@@ -837,13 +837,12 @@ auto create_subdomains(
 
     // dummy arguments
     std::vector<int> nmodesVec(ndomains, -1);
-    std::vector<mesh_t> meshesHyper(ndomains);
     std::vector<std::string> meshPathsHyper(ndomains, "");
 
     return create_subdomains<app_t>(meshes, tiling,
         probId, odeScheme, order,
         domFlagVec, "", "", nmodesVec,
-        icFlag, meshesHyper, meshPathsHyper, userParams);
+        icFlag, meshPathsHyper, userParams);
 
 }
 
@@ -862,7 +861,6 @@ auto create_subdomains(
     const std::string & basisRoot,
     const std::vector<int> & nmodesVec,
     int icFlag = 0,
-    const std::vector<mesh_t> & meshesHyper = {},
     const std::vector<std::string> & meshPathsHyper = {},
     const std::unordered_map<std::string, typename app_t::scalar_type> & userParams = {})
 {
@@ -925,8 +923,6 @@ auto create_subdomains(
                 transRoot, basisRoot, nmodesVec[domIdx]));
         }
         else if (domFlagVec[domIdx] == "LSPGHyper") {
-            // TODO: the access of meshesHyper is a little wonky,
-            //      as it's not guaranteed that every mesh be a sample mesh
             result.emplace_back(std::make_shared<SubdomainLSPGHyper<mesh_t, app_t, prob_t>>(
                 domIdx, meshes[domIdx],
                 bcLeft, bcFront, bcRight, bcBack,

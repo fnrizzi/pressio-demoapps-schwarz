@@ -52,7 +52,7 @@ int main()
     auto subdomains = pdas::create_subdomains<app_t>(
         meshObjsFull, *tiling, probId, scheme, order,
         domFlagVec, transRoot, basisRoot, nmodesVec, icFlag,
-        meshObjsHyper, meshPathsHyper);
+        meshPathsHyper);
     pdas::SchwarzDecomp decomp(subdomains, tiling, dt);
 
     // observer
