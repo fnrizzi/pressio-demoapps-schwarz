@@ -109,7 +109,7 @@ jobs:
             -DCMAKE_VERBOSE_MAKEFILE:BOOL=ON \
             -DCMAKE_BUILD_TYPE:STRING=${{ matrix.config.mode }} \
             -DCMAKE_CXX_FLAGS="-Wall" \
-            -DPRESSIO_SOURCE=${PRESSIO_SRC}
+            -DPRESSIO_SOURCE=${PRESSIO_SRC} \
             -DPDA_SOURCE=${PDA_SRC} \
             -B $BUILD_DIR -S ${{ github.workspace }}
             #-DCMAKE_CXX_FLAGS="-Wall -Werror" \
