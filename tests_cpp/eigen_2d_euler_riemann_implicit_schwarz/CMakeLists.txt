@@ -1,4 +1,6 @@
 
 add_subdirectory(firstorder)
-add_subdirectory(weno3)
+if(${TESTWENO3})
+  add_subdirectory(weno3)
+endif()
 

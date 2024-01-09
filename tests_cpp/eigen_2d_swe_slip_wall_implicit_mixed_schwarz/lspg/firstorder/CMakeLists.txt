@@ -1,5 +1,5 @@
 
-set(testname eigen_2d_swe_slip_wall_firstorder_implicit_lspg_hyper_schwarz)
+set(testname eigen_2d_swe_slip_wall_firstorder_implicit_lspg_mixed_schwarz)
 set(exename  ${testname}_exe)
 
 configure_file(../plot.py plot.py COPYONLY)

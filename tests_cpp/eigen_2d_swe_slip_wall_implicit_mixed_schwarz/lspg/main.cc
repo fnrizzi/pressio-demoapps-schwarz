@@ -1,21 +1,24 @@
 
-#include "pressiodemoapps/euler2d.hpp"
+#include "pressiodemoapps/swe2d.hpp"
 #include "pda-schwarz/schwarz.hpp"
-#include "../observer.hpp"
+#include "../../observer.hpp"
+
 
 int main()
 {
+
     namespace pda  = pressiodemoapps;
     namespace pdas = pdaschwarz;
     namespace pode = pressio::ode;
 
     // +++++ USER INPUTS +++++
-    std::string meshRoot = "./mesh";
-    std::string obsRoot = "riemann2d_solution";
-    const int obsFreq = 2;
+    std::string meshRootFull = "./full_mesh_decomp";
+    std::string meshRootHyper = "./sample_mesh_decomp";
+    std::string obsRoot = "swe_slipWall2d_solution";
+    const int obsFreq = 1;
 
     // problem definition
-    const auto probId = pda::Euler2d::Riemann;
+    const auto probId = pda::Swe2d::CustomBCs;
 #ifdef USE_WENO5
     const auto order   = pda::InviscidFluxReconstruction::Weno5;
 #elif defined USE_WENO3
@@ -23,12 +26,18 @@ int main()
 #else
     const auto order   = pda::InviscidFluxReconstruction::FirstOrder;
 #endif
-    const auto scheme = pode::StepScheme::CrankNicolson;
-    const int icFlag = 2;
-    using app_t = pdas::euler2d_app_type;
+    const auto scheme = pode::StepScheme::BDF1;
+    const int icFlag  = 1;
+    using app_t = pdas::swe2d_app_type;
+
+    // ROM definition
+    std::vector<std::string> domFlagVec{"FOM", "LSPGHyper", "LSPGHyper", "FOM"};
+    std::string transRoot = "./trial_space/center";
+    std::string basisRoot = "./trial_space/basis";
+    std::vector<int> nmodesVec(4, 25);
 
     // time stepping
-    const double tf = 0.5;
+    const double tf = 1.0;
     std::vector<double> dt(1, 0.02);
     const int convergeStepMax = 10;
     const double abs_err_tol = 1e-11;
@@ -37,11 +46,16 @@ int main()
     // +++++ END USER INPUTS +++++
 
     // tiling, meshes, and decomposition
-    auto tiling = std::make_shared<pdas::Tiling>(meshRoot);
-    auto [meshObjs, meshPaths] = pdas::create_meshes(meshRoot, tiling->count());
+    auto tiling = std::make_shared<pdas::Tiling>(meshRootFull);
+    auto [meshObjsFull, meshPathsFull] = pdas::create_meshes(meshRootFull, tiling->count());
+    std::vector<std::string> meshPathsHyper;
+    for (int domIdx = 0; domIdx < meshPathsFull.size(); ++ domIdx) {
+        meshPathsHyper.emplace_back(meshRootHyper + "/domain_" + std::to_string(domIdx));
+    }
     auto subdomains = pdas::create_subdomains<app_t>(
-        meshObjs, *tiling,
-		probId, scheme, order, icFlag);
+        meshObjsFull, *tiling, probId, scheme, order,
+        domFlagVec, transRoot, basisRoot, nmodesVec, icFlag,
+        meshPathsHyper);
     pdas::SchwarzDecomp decomp(subdomains, tiling, dt);
 
     // observer
@@ -74,7 +88,7 @@ int main()
 
         time += decomp.m_dtMax;
 
-        // output state observer
+        // output observer
         if ((outerStep % obsFreq) == 0) {
             const auto stepWrap = pode::StepCount(outerStep);
             for (int domIdx = 0; domIdx < (*decomp.m_tiling).count(); ++domIdx) {
@@ -88,4 +102,5 @@ int main()
     }
 
     return 0;
+
 }

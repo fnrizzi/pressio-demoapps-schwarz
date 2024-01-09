@@ -5,14 +5,16 @@ This repository provides an interface for applying domain-decomposed solutions o
 
 # Building and Running Tests
 
-Executing the test cases only requires a copy of the **pressio-demoapps** source, which comes bundled with the necessary **Pressio** and **Eigen** header files. Building and executing the test cases can be performed as
+Executing the test cases requires a copy of the **pressio-demoapps** source (which has bundled the **Eigen** library)
+and the **pressio**source. Building and executing the test cases can be performed as
 
 ```
 git clone git@github.com:cwentland0/pressio-demoapps-schwarz.git
 export CXX=<path-to-your-CXX-compiler>
 export PDA_ROOT=<path-to-pressio-demoapps-root>
+export PRESSIO_ROOT=<path-to-pressio>
 cd pressio-demoapps-schwarz && mkdir build && cd build
-cmake -DPDA_SOURCE=${PDA_ROOT} ..
+cmake -DPDA_SOURCE=${PDA_ROOT} -DPRESSIO_SOURCE=${PRESSIO_ROOT} ..
 make -j4
 ctest -j4
 ```
