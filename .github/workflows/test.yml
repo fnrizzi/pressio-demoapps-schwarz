@@ -50,7 +50,7 @@ jobs:
         uses: actions/checkout@v2
         with:
           repository: Pressio/pressio
-          path: pressio-demoapps
+          path: pressio
           ref: use_dynalloc_rom_policy
 
       - name: Clone pressio-demoapps repository, develop branch
