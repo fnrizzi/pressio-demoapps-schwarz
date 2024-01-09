@@ -477,10 +477,30 @@ def calc_projection(
     return datalist_out
 
 
+def get_bound_indices(meshdims):
+
+    samples_seed = []
+    ndim = len(meshdims)
+
+    if ndim == 1:
+        samples_seed += [0, meshdims[0]]
+
+    elif ndim == 2:
+        samples_seed += [i * meshdims[0] for i in range(meshdims[1])]  # left
+        samples_seed += [i for i in range((meshdims[1] - 1) * meshdims[0], meshdims[0] * meshdims[1])]  # top
+        samples_seed += [(meshdims[0] - 1) + i * meshdims[0] for i in range(meshdims[1])]  # right
+        samples_seed += [i for i in range(meshdims[0])]  # bottom
+    elif ndim == 3:
+        raise ValueError("3D seed samples not implemented yet")
+
+    return list(np.unique(samples_seed))
+
+
 def gen_sample_mesh(
     samptype,
     meshdir,
     outdir,
+    samp_bounds=False,
     percpoints=None,
     npoints=None,
     randseed=0,
@@ -497,7 +517,7 @@ def gen_sample_mesh(
     if not os.path.isdir(outdir):
         os.mkdir(outdir)
 
-     # get monolithic mesh dimensions
+    # get monolithic mesh dimensions
     coords_full, coords_sub = load_meshes(meshdir)
     ndim = coords_full.shape[-1]
 
@@ -507,13 +527,21 @@ def gen_sample_mesh(
         meshdims = coords_full.shape[:-1]
         ncells = np.prod(meshdims)
 
+        # "seed" sample indices
+        points_seed = []
+        if samp_bounds:
+            points_seed += get_bound_indices(meshdims)
+        npoints_seed = len(points_seed)
+
         if percpoints is not None:
             npoints = floor(ncells * percpoints)
 
-        assert (npoints > 0) and (npoints <= ncells)
+        assert npoints > 0
+        assert npoints <= ncells
+        assert npoints >= npoints_seed
 
         if samptype == "random":
-            samples = gen_random_samples(0, ncells-1, npoints, randseed=randseed)
+            samples = gen_random_samples(0, ncells-1, npoints, randseed=randseed, points_seed=points_seed)
 
         outfile = os.path.join(outdir, "sample_mesh_gids.dat")
         print(f"Saving sample mesh global indices to {outfile}")
@@ -536,12 +564,18 @@ def gen_sample_mesh(
             meshdims = coords_local.shape[:-1]
             ncells = np.prod(meshdims)
 
+            # "seed" sample indices
+            points_seed = []
+            if samp_bounds:
+                points_seed += get_bound_indices(meshdims)
+            npoints_seed = len(points_seed)
+
             # TODO: adjust this if enabling using npoints
             npoints = floor(ncells * percpoints)
 
             if samptype == "random":
                 # have to perturb random seed so sampling isn't the same in uniform subdomains
-                samples = gen_random_samples(0, ncells-1, npoints, randseed=randseed+dom_idx)
+                samples = gen_random_samples(0, ncells-1, npoints, randseed=randseed+dom_idx, points_seed=points_seed)
 
             outdir_sub = os.path.join(outdir, f"domain_{dom_idx}")
             if not os.path.isdir(outdir_sub):
@@ -556,6 +590,7 @@ def gen_random_samples(
     high,
     numsamps,
     randseed=0,
+    points_seed=[],
 ):
 
     rng = np.random.default_rng(seed=randseed)
@@ -563,6 +598,16 @@ def gen_random_samples(
     all_samples = np.arange(low, high+1)
     rng.shuffle(all_samples)
 
-    samples = np.sort(all_samples[:numsamps])
+    numsamps_seed = len(points_seed)
+    if numsamps_seed == 0:
+        samples = np.sort(all_samples[:numsamps])
+    else:
+        samples = points_seed
+        idx = 0
+        while len(samples) < numsamps:
+            if all_samples[idx] not in samples:
+                samples.append(all_samples[idx])
+            idx += 1
+        samples = np.sort(samples)
 
     return samples
