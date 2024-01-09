@@ -16,7 +16,6 @@ add_test(NAME ${testname}
 COMMAND ${CMAKE_COMMAND}
 -DMESHDRIVER=${MESHSRC}/create_full_mesh.py
 -DDECOMPDRIVER=${DECOMPSRC}/create_decomp_meshes.py
--DSAMPMESHDRIVER=${DECOMPSRC}/create_decomp_sample_meshes.py
 -DOUTDIR=${CMAKE_CURRENT_BINARY_DIR}
 -DEXENAME=$<TARGET_FILE:${exename}>
 -DSTENCILVAL=3
