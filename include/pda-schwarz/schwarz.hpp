@@ -70,6 +70,11 @@ public:
     {
         m_dofPerCell = m_subdomainVec[0]->getDofPerCell();
 
+        // silly, but some things have to be written to disk for hyper-reduction,
+        //      as mesh class HAS to be instantiated from a mesh directory
+        m_tempdir = "./temp_" + std::to_string(::getpid());
+        std::filesystem::create_directory(m_tempdir);
+
         // set up connectivity for neighboring subdomains
         // only relevant if at least one domain is a hyper-reduction subdomain
         calc_hyper_connectivity();
@@ -77,7 +82,7 @@ public:
         // hyper-reduction subdomains need some final member object initializations
         // this is a consequence of computing the stencil mesh at runtime
         for (int domIdx = 0; domIdx < m_subdomainVec.size(); ++domIdx) {
-            m_subdomainVec[domIdx]->finalize_subdomain();
+            m_subdomainVec[domIdx]->finalize_subdomain(m_tempdir);
         }
 
         setup_controller(dtVec);
@@ -93,6 +98,9 @@ public:
 
         // set up ghost filling graph, boundary pointers
         calc_ghost_graph();
+
+        // delete temporary directory
+        std::filesystem::remove_all(m_tempdir);
 
     }
 
@@ -313,23 +321,24 @@ private:
             }
         }
 
-        // silly, but have to write everything to disk
-        // mesh class HAS to be instantiated from a mesh directory
-        // NOTE: THIS IS NOT PORTABLE, ONLY FOR UNIX
-        // TODO: figure out why std::filesystem won't link properly
-        std::string tempdir = "./temp_" + std::to_string(::getpid());
-        ::mkdir(tempdir.c_str(), 0777);
-
         // write coordinates and connectivity
         for (int domIdx = 0; domIdx < tiling.count(); ++domIdx) {
             // make subdirectory
-            std::string subdom_dir = tempdir + "/domain_" + std::to_string(domIdx);
-            ::mkdir(subdom_dir.c_str(), 0777);
+            std::string subdom_dir = m_tempdir + "/domain_" + std::to_string(domIdx);
+            std::filesystem::create_directory(subdom_dir);
 
             auto [i, j, k] = linear_to_grid_idx(domIdx);
             const auto & meshFull = m_subdomainVec[domIdx]->getMeshFull();
             const auto * sampGids = m_subdomainVec[domIdx]->getSampleGids();
             const auto & graphFull = meshFull.graph();
+
+            // stencil GIDs
+            std::ofstream stencil_file(subdom_dir + "/stencil_mesh_gids.dat");
+            for (int stencilIdx = 0; stencilIdx < stencil_gids[domIdx].size(); ++stencilIdx) {
+                int stencil_gid = stencil_gids[domIdx][stencilIdx];
+                stencil_file << std::to_string(stencil_gid) + "\n";
+            }
+            stencil_file.close();
 
             // connectivity
             std::ofstream connect_hyper_file(subdom_dir + "/connectivity.dat");
@@ -464,11 +473,6 @@ private:
             m_subdomainVec[domIdx]->setNeighborGraph(neighborGraph);
 
         }
-
-        // finally, delete temporary directory
-        // TODO: this is not actually deleting it, only removes empty directories
-        // Need to figure out std::filesystem for remove_all()
-        std::filesystem::remove_all(tempdir);
 
     }
 
@@ -800,6 +804,7 @@ public:
 
 public:
 
+    std::string m_tempdir;
     int m_dofPerCell;
     std::shared_ptr<const Tiling> m_tiling;
     std::vector<std::shared_ptr<subdomain_base_t>> & m_subdomainVec;

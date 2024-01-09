@@ -78,7 +78,7 @@ public:
     virtual void setNeighborGraph(graph_t &) = 0;
     virtual const graph_t & getNeighborGraph() const = 0;
     virtual int getDofPerCell() const = 0;
-    virtual void finalize_subdomain() = 0;
+    virtual void finalize_subdomain(std::string &) = 0;
     virtual state_t * getStateStencil() = 0;
     virtual state_t * getStateFull() = 0;
     virtual state_t * getStateBCs() = 0;
@@ -193,7 +193,7 @@ public:
         m_stateBCs.fill(0.0);
     }
 
-    void finalize_subdomain() final {
+    void finalize_subdomain(std::string &) final {
         init_bc_state();
     }
 
@@ -350,7 +350,7 @@ public:
         m_stateBCs.fill(0.0);
     }
 
-    void finalize_subdomain() final {
+    void finalize_subdomain(std::string &) final {
         init_bc_state();
     }
 
@@ -497,7 +497,6 @@ public:
         const std::string & transRoot,
         const std::string & basisRoot,
         const int nmodes,
-        const mesh_t & meshHyper,
         const std::string & meshPathHyper)
     : m_domIdx(domainIndex)
     , m_meshFull(&meshFull)
@@ -513,7 +512,6 @@ public:
             BCFunctor<mesh_t>(bcRight), BCFunctor<mesh_t>(bcBack),
             icflag, userParams)))
     , m_sampleFile(meshPathHyper + "/sample_mesh_gids.dat")
-    , m_stencilFile(meshPathHyper + "/stencil_mesh_gids.dat")
     , m_sampleGids(create_cell_gids_vector_and_fill_from_ascii(m_sampleFile))
     , m_nmodes(nmodes)
     , m_transFull(read_vector_from_binary<scalar_t>(transRoot + "_" + std::to_string(domainIndex) + ".bin"))
@@ -552,13 +550,20 @@ public:
         return &m_stateFull;
     }
     int getDofPerCell() const final { return m_appHyper->numDofPerCell(); }
-    const mesh_t & getMeshStencil() const final { return m_meshHyper; }
+    const mesh_t & getMeshStencil() const final {
+        if (!m_hyperMeshSet) {
+            throw std::runtime_error("Must call genHyperMesh() before getMeshStencil()");
+        }
+        return m_meshHyper;
+    }
     const mesh_t & getMeshFull() const final { return *m_meshFull; }
     const std::array<int, 3> getFullMeshDims() const final { return m_fullMeshDims; }
     const stencil_t * getSampleGids() const final { return &m_sampleGids; }
     const graph_t & getNeighborGraph() const final { return m_neighborGraph; }
 
     void setStencilGids(std::vector<int> gids_vec) final {
+        m_stencilGidsSet = true;
+
         pda::resize(m_stencilGids, (int) gids_vec.size());
         for (int stencilIdx = 0; stencilIdx < gids_vec.size(); ++stencilIdx) {
             m_stencilGids(stencilIdx) = gids_vec[stencilIdx];
@@ -566,6 +571,8 @@ public:
     }
 
     void genHyperMesh(std::string & subdom_dir) final {
+        m_hyperMeshSet = true;
+
         m_meshHyper = pda::load_cellcentered_uniform_mesh_eigen(subdom_dir);
     }
 
@@ -580,6 +587,10 @@ public:
 
     void init_bc_state()
     {
+
+        if (!m_hyperMeshSet) {
+            throw std::runtime_error("Must call genHyperMesh() before init_bc_state()");
+        }
 
         // count number of neighbor ghost cells in neighborGraph
         int numGhostCells = 0;
@@ -600,7 +611,14 @@ public:
 
     // All this junk has to happen AFTER construction,
     //      as the hyper-reduction mesh hasn't been generated at that point
-    void finalize_subdomain() {
+    void finalize_subdomain(std::string &) {
+
+        if (!m_hyperMeshSet) {
+            throw std::runtime_error("Must call genHyperMesh() before finalize_subdomain()");
+        }
+        if (!m_stencilGidsSet) {
+            throw std::runtime_error("Must call setStencilGids() before finalize_subdomain()");
+        }
 
         m_appHyper = std::make_shared<app_t>(pda::create_problem_eigen(
             m_meshHyper, m_probId, m_order,
@@ -666,11 +684,13 @@ public:
     std::vector<state_t> m_stateHistVec;
     std::vector<state_t> m_stateReducedHistVec;
 
-    std::string m_stencilFile;
+    // for error checking
+    bool m_hyperMeshSet = false;
+    bool m_stencilGidsSet = false;
+
     std::string m_sampleFile;
     stencil_t m_sampleGids;
     stencil_t m_stencilGids;
-    stencil_t m_stencilGids2;
 
     int m_nmodes;
     trans_t m_transFull;
@@ -728,13 +748,12 @@ public:
         const std::string & transRoot,
         const std::string & basisRoot,
         const int nmodes,
-        const mesh_t & meshHyper,
         const std::string & meshPathHyper)
     : base_t(domainIndex, meshFull,
              bcLeft, bcFront, bcRight, bcBack,
              probId, odeScheme, order, icflag, userParams,
              transRoot, basisRoot, nmodes,
-             meshHyper, meshPathHyper)
+             meshPathHyper)
     {
         m_odeScheme = odeScheme;
     }
@@ -745,13 +764,16 @@ public:
 
     // Again, this has to be done because the hyper-reduced mesh
     //      has not been initialized on construction
-    void finalize_subdomain() final
+    // tempdir is the temporary directory that stores the true stencil mesh
+    void finalize_subdomain(std::string & tempdir) final
     {
-        SubdomainHyper<mesh_t, app_t, prob_t>::finalize_subdomain();
+        SubdomainHyper<mesh_t, app_t, prob_t>::finalize_subdomain(tempdir);
+
+        std::string stencilFile = tempdir + "/domain_" + std::to_string(this->m_domIdx) + "/stencil_mesh_gids.dat";
 
         m_updaterHyper = std::make_shared<updaterHyp_t>
             (create_hyper_updater<mesh_t>(this->getDofPerCell(),
-                                          this->m_stencilFile,
+                                          stencilFile,
                                           this->m_sampleFile));
 
         m_problemHyper = std::make_shared<problemHyp_t>
@@ -910,7 +932,7 @@ auto create_subdomains(
                 bcLeft, bcFront, bcRight, bcBack,
                 probId, odeScheme, order, icFlag, userParams,
                 transRoot, basisRoot, nmodesVec[domIdx],
-                meshesHyper[domIdx], meshPathsHyper[domIdx]));
+                meshPathsHyper[domIdx]));
         }
         else {
             std::runtime_error("Invalid subdomain flag value: " + domFlagVec[domIdx]);
