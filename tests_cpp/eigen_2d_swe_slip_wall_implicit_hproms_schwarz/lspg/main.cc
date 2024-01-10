@@ -45,6 +45,8 @@ int main()
 
     // +++++ END USER INPUTS +++++
 
+    BS::thread_pool pool(8);
+
     // tiling, meshes, and decomposition
     auto tiling = std::make_shared<pdas::Tiling>(meshRootFull);
     auto [meshObjsFull, meshPathsFull] = pdas::create_meshes(meshRootFull, tiling->count());
@@ -83,7 +85,8 @@ int main()
             rel_err_tol,
             abs_err_tol,
             convergeStepMax,
-            false
+            false,
+	    pool
         );
 
         time += decomp.m_dtMax;

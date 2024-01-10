@@ -5,6 +5,8 @@
 
 int main()
 {
+
+
     namespace pda  = pressiodemoapps;
     namespace pdas = pdaschwarz;
     namespace pode = pressio::ode;
@@ -36,6 +38,8 @@ int main()
 
     // +++++ END USER INPUTS +++++
 
+    BS::thread_pool pool(8);
+
     // tiling, meshes, and decomposition
     auto tiling = std::make_shared<pdas::Tiling>(meshRoot);
     auto [meshObjs, meshPaths] = pdas::create_meshes(meshRoot, tiling->count());
@@ -56,11 +60,11 @@ int main()
     RuntimeObserver obs_time("runtime.bin", (*tiling).count());
 
     // solve
-    const int numSteps = tf / decomp.m_dtMax;
+    const int numSteps = 15; //tf / decomp.m_dtMax;
     double time = 0.0;
-    for (int outerStep = 1; outerStep <= numSteps; ++outerStep)
-    {
-        std::cout << "Step " << outerStep << std::endl;
+    std::cout << "starting outerstep loop " << std::endl;
+    for (int outerStep = 1; outerStep <= numSteps; ++outerStep){
+      //std::cout << "Step " << outerStep << std::endl;
 
         // compute contoller step until convergence
         auto runtimeIter = decomp.calc_controller_step(
@@ -69,23 +73,21 @@ int main()
             rel_err_tol,
             abs_err_tol,
             convergeStepMax,
-            false
+            false,
+	    pool
         );
 
         time += decomp.m_dtMax;
 
-        // output observer
         if ((outerStep % obsFreq) == 0) {
             const auto stepWrap = pode::StepCount(outerStep);
             for (int domIdx = 0; domIdx < (*decomp.m_tiling).count(); ++domIdx) {
                 obsVec[domIdx](stepWrap, time, *decomp.m_subdomainVec[domIdx]->getStateFull());
             }
         }
-
-        // runtime observer
         obs_time(runtimeIter);
-
     }
+    std::cout << "end outerstep loop " << std::endl;
 
   return 0;
 }
