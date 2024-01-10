@@ -20,7 +20,7 @@
 #include <filesystem>
 
 
-namespace pdaschwarz{
+namespace pdaschwarz {
 
 namespace pda = pressiodemoapps;
 namespace pode = pressio::ode;
@@ -701,7 +701,7 @@ public:
         const int convergeStepMax)
     {
       return calc_controller_step_impl(outerStep, currentTime,  rel_err_tol, abs_err_tol,
-				       convergeStepMax, mode, nullptr);
+                                       convergeStepMax, mode, nullptr);
     }
 
     [[nodiscard]] std::vector<std::vector<double>> calc_controller_step(
@@ -711,14 +711,14 @@ public:
         const double rel_err_tol,
         const double abs_err_tol,
         const int convergeStepMax,
-	BS::thread_pool & pool)
+        BS::thread_pool & pool)
     {
       const bool is_multipl = mode==SchwarzMode::Multiplicative;
       if (is_multipl && pool.get_thread_count() != 1){
-	throw std::runtime_error("you cannot run multiplicative Schwarz in parallel (yet), reset the # of thread to 1");
+        throw std::runtime_error("you cannot run multiplicative Schwarz in parallel (yet), reset the # of thread to 1");
       }
       return calc_controller_step_impl(outerStep, currentTime,  rel_err_tol, abs_err_tol,
-				       convergeStepMax, mode, &pool);
+                                       convergeStepMax, mode, &pool);
     }
 
 private:
@@ -746,9 +746,9 @@ private:
         std::vector<std::vector<double>> iterTime(ndomains);
         while (convergeStep < convergeStepMax) {
 
-	    std::cout << "Schwarz iteration " << convergeStep + 1 << '\n';
+            std::cout << "Schwarz iteration " << convergeStep + 1 << '\n';
 
-	    auto maintask = [&, currentTime, outerStep](const int domIdx){
+            auto maintask = [&, currentTime, outerStep](const int domIdx) {
                 // reset to beginning of controller time
                 auto timeDom = currentTime;
                 auto stepDom = outerStep * m_controlItersVec[domIdx];
@@ -764,7 +764,7 @@ private:
 
                     // for last iteration, compute convergence criteria
                     // important to do this before saving history,
-		    // as stateHistVec still has last convergence loop's state
+                    // as stateHistVec still has last convergence loop's state
                     // NOTE: this is always computed on the full-order state
                     if (innerStep == (m_controlItersVec[domIdx] - 1)) {
                         convergeVals[domIdx] = calcConvergence(
@@ -787,19 +787,19 @@ private:
                 // record iteration runtime (in seconds)
                 auto runtimeEnd = std::chrono::high_resolution_clock::now();
                 double nsElapsed = static_cast<double>
-		  (std::chrono::duration_cast<std::chrono::nanoseconds>(runtimeEnd - runtimeStart).count());
+                    (std::chrono::duration_cast<std::chrono::nanoseconds>(runtimeEnd - runtimeStart).count());
                 iterTime[domIdx].emplace_back(nsElapsed * 1e-9);
             };
 
-	    if (pool){
-	      pool->detach_loop<int>(0, ndomains, maintask);
-	      pool->wait();
-	    }
-	    else{
-	      for (int domIdx = 0; domIdx < ndomains; ++domIdx) {
-		maintask(domIdx);
-	      }
-	    }
+            if (pool) {
+                pool->detach_loop<int>(0, ndomains, maintask);
+                pool->wait();
+            }
+            else {
+                for (int domIdx = 0; domIdx < ndomains; ++domIdx) {
+                    maintask(domIdx);
+                }
+            }
 
             // check convergence for all domains, break if conditions met
             double abs_err = 0.0;
@@ -818,26 +818,26 @@ private:
 
             // broadcast boundary conditions after domain cycle for additive Schwarz
             if (additive) {
-	      auto task = [&](const int domIdx){ broadcast_bcState(domIdx); };
-	      if (pool){
-		pool->detach_loop<int>(0, ndomains, task);
-		pool->wait();
-	      }
-	      else{
-		for (int domIdx = 0; domIdx < ndomains; ++domIdx) { task(domIdx); }
-	      }
-	    }
+                auto task = [&](const int domIdx){ broadcast_bcState(domIdx); };
+                if (pool) {
+                    pool->detach_loop<int>(0, ndomains, task);
+                    pool->wait();
+                }
+                else {
+                    for (int domIdx = 0; domIdx < ndomains; ++domIdx) { task(domIdx); }
+                }
+            }
             convergeStep++;
 
-	    // reset interior state if not converged
-	    auto taskreset = [&](const int domIdx){ m_subdomainVec[domIdx]->resetStateFromHistory(); };
-	    if (pool){
-	      pool->detach_loop<int>(0, ndomains, taskreset);
-	      pool->wait();
-	    }
-	    else{
-	      for (int domIdx = 0; domIdx < ndomains; ++domIdx){ taskreset(domIdx); }
-	    }
+            // reset interior state if not converged
+            auto taskreset = [&](const int domIdx){ m_subdomainVec[domIdx]->resetStateFromHistory(); };
+            if (pool) {
+                pool->detach_loop<int>(0, ndomains, taskreset);
+                pool->wait();
+            }
+            else {
+                for (int domIdx = 0; domIdx < ndomains; ++domIdx){ taskreset(domIdx); }
+            }
 
         } // convergence loop
 
