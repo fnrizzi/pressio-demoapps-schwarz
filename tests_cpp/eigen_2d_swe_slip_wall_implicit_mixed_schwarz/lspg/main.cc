@@ -78,12 +78,12 @@ int main()
 
         // compute contoller step until convergence
         auto runtimeIter = decomp.calc_controller_step(
+            pdas::SchwarzMode::Multiplicative,
             outerStep,
             time,
             rel_err_tol,
             abs_err_tol,
-            convergeStepMax,
-            false
+            convergeStepMax
         );
 
         time += decomp.m_dtMax;
