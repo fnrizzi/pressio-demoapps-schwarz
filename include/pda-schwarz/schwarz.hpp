@@ -692,7 +692,6 @@ private:
     }
 
 public:
-    // this overload defaults to multiplicative Schwarz
     [[nodiscard]] std::vector<std::vector<double>> calc_controller_step(
         SchwarzMode mode,
         int outerStep,
