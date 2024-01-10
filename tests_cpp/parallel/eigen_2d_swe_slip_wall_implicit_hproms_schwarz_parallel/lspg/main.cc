@@ -2,14 +2,15 @@
 #include "pressiodemoapps/swe2d.hpp"
 #include "pda-schwarz/schwarz.hpp"
 #include "../../../observer.hpp"
+#include "../../help.hpp"
 
-
-int main()
+int main(int argc, char *argv[])
 {
-
     namespace pda  = pressiodemoapps;
     namespace pdas = pdaschwarz;
     namespace pode = pressio::ode;
+
+    const int numthreads = parse_num_threads(argc, argv);
 
     // +++++ USER INPUTS +++++
     std::string meshRootFull = "./full_mesh_decomp";
@@ -70,6 +71,7 @@ int main()
     RuntimeObserver obs_time("runtime.bin", (*tiling).count());
 
     // solve
+    BS::thread_pool pool(numthreads);
     const int numSteps = tf / decomp.m_dtMax;
     double time = 0.0;
     for (int outerStep = 1; outerStep <= numSteps; ++outerStep)
@@ -78,12 +80,13 @@ int main()
 
         // compute contoller step until convergence
         auto runtimeIter = decomp.calc_controller_step(
+            pdas::SchwarzMode::Additive,
             outerStep,
             time,
             rel_err_tol,
             abs_err_tol,
             convergeStepMax,
-            true
+	    pool
         );
 
         time += decomp.m_dtMax;
