@@ -746,7 +746,7 @@ private:
         std::vector<std::vector<double>> iterTime(ndomains);
         while (convergeStep < convergeStepMax) {
 
-            std::cout << "Schwarz iteration " << convergeStep + 1 << '\n';
+            std::cout << "Schwarz iteration " << convergeStep + 1 << ' ';
 
             auto maintask = [&, currentTime, outerStep](const int domIdx) {
                 // reset to beginning of controller time
@@ -759,7 +759,7 @@ private:
                 for (int innerStep = 0; innerStep < m_controlItersVec[domIdx]; ++innerStep) {
                     const auto startTimeWrap = pode::StepStartAt<double>(timeDom);
                     const auto stepWrap = pode::StepCount(stepDom);
-                    m_subdomainVec[domIdx]->doStep(startTimeWrap, stepWrap, dtWrap);
+		    m_subdomainVec[domIdx]->doStep(startTimeWrap, stepWrap, dtWrap);
                     m_subdomainVec[domIdx]->updateFullState(); // noop for FOM subdomain
 
                     // for last iteration, compute convergence criteria
@@ -784,10 +784,10 @@ private:
                 // broadcast boundary conditions immediately for multiplicative Schwarz
                 if (!additive) { broadcast_bcState(domIdx); }
 
-                // record iteration runtime (in seconds)
-                auto runtimeEnd = std::chrono::high_resolution_clock::now();
-                double nsElapsed = static_cast<double>
-                    (std::chrono::duration_cast<std::chrono::nanoseconds>(runtimeEnd - runtimeStart).count());
+                // // record iteration runtime (in seconds)
+                const auto runtimeEnd = std::chrono::high_resolution_clock::now();
+		const auto duration = std::chrono::duration_cast<std::chrono::nanoseconds>(runtimeEnd - runtimeStart);
+                const double nsElapsed = static_cast<double>(duration.count());
                 iterTime[domIdx].emplace_back(nsElapsed * 1e-9);
             };
 
@@ -810,11 +810,8 @@ private:
             }
             abs_err /= ndomains;
             rel_err /= ndomains;
-            std::cout << "Average abs err: " << abs_err << '\n';
-            std::cout << "Average rel err: " << rel_err << '\n';
-            if ((rel_err < rel_err_tol) || (abs_err < abs_err_tol)) {
-                break;
-            }
+            std::cout << "Average abs/rel err: " << abs_err << ' ' << rel_err << '\n';
+            if ((rel_err < rel_err_tol) || (abs_err < abs_err_tol)) { break; }
 
             // broadcast boundary conditions after domain cycle for additive Schwarz
             if (additive) {
