@@ -15,8 +15,9 @@ include_directories(
 
 add_compile_definitions(PRESSIO_ENABLE_TPL_EIGEN PRESSIO_ENABLE_DEBUG_PRINT)
 
-link_libraries(stdc++fs)
-link_libraries(pthread)
+#find_package(OpenMP)
+#link_libraries(OpenMP::OpenMP_CXX 
+link_libraries(stdc++fs pthread)
 
 # ---------------------------------------------------------
 # 2d problems

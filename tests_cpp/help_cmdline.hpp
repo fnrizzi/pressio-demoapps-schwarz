@@ -13,7 +13,7 @@ int parse_num_threads(int argc, char *argv[])
     */
 
     int numthreads = 1;
-    if (argc == 2){
+    if (argc >= 2){
         numthreads = std::stoi(argv[1]);
         if (numthreads == -1){ numthreads = std::thread::hardware_concurrency(); }
         std::cout << "Gigi " << numthreads;

@@ -2,7 +2,7 @@
 #include "pressiodemoapps/swe2d.hpp"
 #include "pda-schwarz/schwarz.hpp"
 #include "../../observer.hpp"
-#include "../help.hpp"
+#include "../../help.hpp"
 
 int main(int argc, char *argv[])
 {
