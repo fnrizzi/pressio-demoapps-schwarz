@@ -11,8 +11,8 @@ include_directories(
   ${PRESSIO_SOURCE}/include
   ${CMAKE_CURRENT_SOURCE_DIR}/../include)
 
-#find_package(OpenMP)
-#link_libraries(OpenMP::OpenMP_CXX
+find_package(OpenMP)
+link_libraries(OpenMP::OpenMP_CXX)
 #link_libraries(stdc++fs pthread)
 
 # case a: we just test performance of calling demoapps repeteadly

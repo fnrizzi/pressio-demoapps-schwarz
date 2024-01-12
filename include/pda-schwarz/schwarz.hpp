@@ -763,7 +763,10 @@ private:
         while (convergeStep < convergeStepMax) {
 	  //std::cout << "Schwarz iteration " << convergeStep + 1 << '\n';
 
-            auto maintask = [&, currentTime, outerStep](const int domIdx) {
+	  //auto maintask = [&, currentTime, outerStep](const int domIdx) {
+          #pragma omp parallel for schedule(static)
+	  for (int domIdx = 0; domIdx < ndomains; ++domIdx)
+	    {
                 auto timeDom = currentTime;
                 auto stepDom = outerStep * m_controlItersVec[domIdx];
                 const auto dtDom = m_dt[domIdx];
@@ -799,15 +802,15 @@ private:
 #endif
             };
 
-            if (pool) {
-                pool->detach_loop<int>(0, ndomains, maintask);
-                pool->wait();
-            }
-            else {
-                for (int domIdx = 0; domIdx < ndomains; ++domIdx) {
-                    maintask(domIdx);
-                }
-            }
+            // if (pool) {
+            //     pool->detach_loop<int>(0, ndomains, maintask);
+            //     pool->wait();
+            // }
+            // else {
+            //     for (int domIdx = 0; domIdx < ndomains; ++domIdx) {
+            //         maintask(domIdx);
+            //     }
+            // }
 
             // check convergence for all domains, break if conditions met
             double abs_err = 0.0;
@@ -829,24 +832,26 @@ private:
 	    // broadcast boundary conditions after domain cycle for additive Schwarz
             if (additive) {
                  auto task = [&](const int domIdx){ broadcast_bcState(domIdx); };
-                if (pool) {
-                    pool->detach_loop<int>(0, ndomains, task);
-                    pool->wait();
-                }
-                else {
-                    for (int domIdx = 0; domIdx < ndomains; ++domIdx) { task(domIdx); }
-		}
+                // if (pool) {
+                //     pool->detach_loop<int>(0, ndomains, task);
+                //     pool->wait();
+                // }
+                // else {
+		 #pragma omp parallel for schedule(static)
+		 for (int domIdx = 0; domIdx < ndomains; ++domIdx) { task(domIdx); }
+		 //}
             }
 
             // reset interior state if not converged
             auto taskreset = [&](const int domIdx){ m_subdomainVec[domIdx]->resetStateFromHistory(); };
-            if (pool) {
-                pool->detach_loop<int>(0, ndomains, taskreset);
-                pool->wait();
-            }
-            else {
-                for (int domIdx = 0; domIdx < ndomains; ++domIdx){ taskreset(domIdx); }
-	    }
+            // if (pool) {
+            //     pool->detach_loop<int>(0, ndomains, taskreset);
+            //     pool->wait();
+            // }
+            // else {
+	    #pragma omp parallel for schedule(static)
+	    for (int domIdx = 0; domIdx < ndomains; ++domIdx){ taskreset(domIdx); }
+	    //}
 
         } // convergence loop
         return iterTime;

@@ -16,7 +16,7 @@ include_directories(
 add_compile_definitions(PRESSIO_ENABLE_TPL_EIGEN PRESSIO_ENABLE_DEBUG_PRINT)
 
 #find_package(OpenMP)
-#link_libraries(OpenMP::OpenMP_CXX 
+#link_libraries(OpenMP::OpenMP_CXX
 link_libraries(stdc++fs pthread)
 
 # ---------------------------------------------------------
