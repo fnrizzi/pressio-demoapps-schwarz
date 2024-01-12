@@ -721,35 +721,49 @@ public:
                                        convergeStepMax, mode, &pool);
     }
 
+
+#if defined(SCHWARZ_PERF_A)
+    // this is only supposed to exercise demoapps evalations
+    void _testonlydemoappsevaluation(BS::thread_pool & pool){
+      const auto & tiling = *m_tiling;
+      const auto ndomains = tiling.count();
+      auto task = [&](const int domIdx) {
+	for (int innerStep = 0; innerStep < 5; ++innerStep) {
+	  m_subdomainVec[domIdx]->_evaluate_app_rhs_and_jacobian();
+	}
+      };
+
+      if (pool.get_thread_count() == 1){
+	for (int domIdx = 0; domIdx < ndomains; ++domIdx) {
+	  task(domIdx);
+	}
+      }
+      else{
+	pool.detach_loop<int>(0, ndomains, task);
+	pool.wait();
+      }
+    }
+#endif
+
 private:
     [[nodiscard]] std::vector<std::vector<double>> calc_controller_step_impl(
-        int outerStep,
-        double currentTime,
-        const double rel_err_tol,
-        const double abs_err_tol,
-        const int convergeStepMax,
-        SchwarzMode mode,
+        int outerStep, double currentTime,
+        const double rel_err_tol, const double abs_err_tol,
+        const int convergeStepMax, SchwarzMode mode,
         BS::thread_pool * pool)
     {
         const bool additive = (mode==SchwarzMode::Additive);
         const auto & tiling = *m_tiling;
         const auto ndomains = tiling.count();
+        for (int domIdx = 0; domIdx < ndomains; ++domIdx) { m_subdomainVec[domIdx]->storeStateHistory(0); }
 
-        // store initial step for resetting if Schwarz iter does not converge
-        for (int domIdx = 0; domIdx < ndomains; ++domIdx) {
-            m_subdomainVec[domIdx]->storeStateHistory(0);
-        }
-
-        // convergence
         int convergeStep = 0;
         std::vector<std::array<double, 2>> convergeVals(ndomains);
         std::vector<std::vector<double>> iterTime(ndomains);
         while (convergeStep < convergeStepMax) {
-
-            std::cout << "Schwarz iteration " << convergeStep + 1 << ' ';
+	  //std::cout << "Schwarz iteration " << convergeStep + 1 << '\n';
 
             auto maintask = [&, currentTime, outerStep](const int domIdx) {
-                // reset to beginning of controller time
                 auto timeDom = currentTime;
                 auto stepDom = outerStep * m_controlItersVec[domIdx];
                 const auto dtDom = m_dt[domIdx];
@@ -762,33 +776,27 @@ private:
 		    m_subdomainVec[domIdx]->doStep(startTimeWrap, stepWrap, dtWrap);
                     m_subdomainVec[domIdx]->updateFullState(); // noop for FOM subdomain
 
-                    // for last iteration, compute convergence criteria
-                    // important to do this before saving history,
-                    // as stateHistVec still has last convergence loop's state
-                    // NOTE: this is always computed on the full-order state
                     if (innerStep == (m_controlItersVec[domIdx] - 1)) {
                         convergeVals[domIdx] = calcConvergence(
                                *m_subdomainVec[domIdx]->getStateStencil(),
-                               m_subdomainVec[domIdx]->getLastStateInHistory());
+			       m_subdomainVec[domIdx]->getLastStateInHistory());
                     }
 
-                    // store intra-step history
                     m_subdomainVec[domIdx]->storeStateHistory(innerStep+1);
-
                     // set (interpolated) boundary conditions
-
                     stepDom++;
                     timeDom += dtDom;
                 }
 
-                // broadcast boundary conditions immediately for multiplicative Schwarz
                 if (!additive) { broadcast_bcState(domIdx); }
 
-                // // record iteration runtime (in seconds)
+#if !defined(SCHWARZ_PERF_B) && !defined(SCHWARZ_PERF_C) && !defined(SCHWARZ_PERF_D) && !defined(SCHWARZ_PERF_E) && !defined(SCHWARZ_PERF_F)
                 const auto runtimeEnd = std::chrono::high_resolution_clock::now();
-		const auto duration = std::chrono::duration_cast<std::chrono::nanoseconds>(runtimeEnd - runtimeStart);
+		const auto duration = std::chrono::duration_cast<
+		    std::chrono::nanoseconds>(runtimeEnd - runtimeStart);
                 const double nsElapsed = static_cast<double>(duration.count());
                 iterTime[domIdx].emplace_back(nsElapsed * 1e-9);
+#endif
             };
 
             if (pool) {
@@ -810,21 +818,25 @@ private:
             }
             abs_err /= ndomains;
             rel_err /= ndomains;
-            std::cout << "Average abs/rel err: " << abs_err << ' ' << rel_err << '\n';
-            if ((rel_err < rel_err_tol) || (abs_err < abs_err_tol)) { break; }
+#if !defined(SCHWARZ_PERF_B) && !defined(SCHWARZ_PERF_C) && !defined(SCHWARZ_PERF_D) && !defined(SCHWARZ_PERF_E) && !defined(SCHWARZ_PERF_F)
+	    std::cout << "Schwarz iteration " << 1 + convergeStep << ", "
+		      << "Average abs/rel err: " << abs_err << ' ' << rel_err << '\n';
+ 	    if ((rel_err < rel_err_tol) || (abs_err < abs_err_tol)) { break; }
+#endif
 
-            // broadcast boundary conditions after domain cycle for additive Schwarz
+	    convergeStep++;
+
+	    // broadcast boundary conditions after domain cycle for additive Schwarz
             if (additive) {
-                auto task = [&](const int domIdx){ broadcast_bcState(domIdx); };
+                 auto task = [&](const int domIdx){ broadcast_bcState(domIdx); };
                 if (pool) {
                     pool->detach_loop<int>(0, ndomains, task);
                     pool->wait();
                 }
                 else {
                     for (int domIdx = 0; domIdx < ndomains; ++domIdx) { task(domIdx); }
-                }
+		}
             }
-            convergeStep++;
 
             // reset interior state if not converged
             auto taskreset = [&](const int domIdx){ m_subdomainVec[domIdx]->resetStateFromHistory(); };
@@ -834,10 +846,9 @@ private:
             }
             else {
                 for (int domIdx = 0; domIdx < ndomains; ++domIdx){ taskreset(domIdx); }
-            }
+	    }
 
         } // convergence loop
-
         return iterTime;
     }
 

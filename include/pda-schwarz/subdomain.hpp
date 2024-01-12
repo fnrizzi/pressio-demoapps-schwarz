@@ -56,6 +56,32 @@ std::array<int, 3> calc_mesh_dims(const mesh_t & meshObj)
     return meshdims;
 }
 
+#if defined(SCHWARZ_PERF_E)
+struct FakeSolverLinear{
+  template <typename T1, class T2>
+  void solve(const T1 & /*A*/, const T2& /*b*/, T2 & y)
+  {
+    y = T2::Random(y.size());
+  }
+};
+#endif
+
+#if defined(SCHWARZ_PERF_F)
+struct FakeSolver{
+
+  template<class SystemType, class StateType>
+  void solve(const SystemType & system, StateType & state)
+  {
+    auto R = system.createResidual();
+    auto J = system.createJacobian();
+    for (int k=0; k<4; ++k){
+      system.residualAndJacobian(state, R, &J);
+      state = StateType::Random(state.size());
+    }
+  }
+};
+#endif
+
 template<class mesh_type, class state_type>
 class SubdomainBase{
 public:
@@ -85,6 +111,10 @@ public:
     virtual void setBCPointer(pda::impl::GhostRelativeLocation, state_t * ) = 0;
     virtual void setBCPointer(pda::impl::GhostRelativeLocation, graph_t *) = 0;
     virtual state_t & getLastStateInHistory() = 0;
+
+#if defined(SCHWARZ_PERF_A)
+  virtual void _evaluate_app_rhs_and_jacobian(){};
+#endif
 };
 
 
@@ -105,11 +135,20 @@ public:
             std::declval<app_t&>())
         );
 
+#if defined(SCHWARZ_PERF_E)
+  using linsolver_t    = FakeSolverLinear;
+#else
     using lin_solver_tag = pressio::linearsolvers::iterative::Bicgstab;
     using linsolver_t    = pressio::linearsolvers::Solver<lin_solver_tag, jacob_t>;
+#endif
+
+#if defined(SCHWARZ_PERF_F)
+    using nonlinsolver_t = FakeSolver;
+#else
     using nonlinsolver_t =
         decltype( pressio::create_newton_solver( std::declval<stepper_t &>(),
                             std::declval<linsolver_t&>()) );
+#endif
 
 public:
     SubdomainFOM(
@@ -132,7 +171,16 @@ public:
     , m_state(m_app->initialCondition())
     , m_stepper(pressio::ode::create_implicit_stepper(odeScheme, *(m_app)))
     , m_linSolverObj(std::make_shared<linsolver_t>())
-    , m_nonlinSolver(pressio::create_newton_solver(m_stepper, *m_linSolverObj))
+#if defined(SCHWARZ_PERF_F)
+    , m_nonlinSolver(std::make_shared<nonlinsolver_t>())
+#else
+    , m_nonlinSolver(std::make_shared<nonlinsolver_t>(pressio::create_newton_solver(m_stepper, *m_linSolverObj)))
+#endif
+#if defined(SCHWARZ_PERF_A)
+    , m_state_perf(m_app->initialCondition())
+    , m_vel_perf(m_state_perf)
+    , m_jac_perf(m_app->createJacobian())
+#endif
     {
         m_fullMeshDims = calc_mesh_dims(*m_mesh);
 
@@ -141,7 +189,28 @@ public:
             m_sampleGids(i) = i;
         }
 
-        m_nonlinSolver.setStopTolerance(1e-5);
+#if defined(SCHWARZ_PERF_B)
+	m_nonlinSolver->setMaxIterations(4);
+	m_nonlinSolver->setStopCriterion(pressio::nonlinearsolvers::Stop::AfterMaxIters);
+
+#elif defined(SCHWARZ_PERF_C)
+	m_nonlinSolver->setMaxIterations(4);
+	m_nonlinSolver->setStopCriterion(pressio::nonlinearsolvers::Stop::AfterMaxIters);
+	m_linSolverObj->setMaxIterations(20);
+
+#elif defined(SCHWARZ_PERF_D)
+	m_linSolverObj->setMaxIterations(1);
+	m_nonlinSolver->setMaxIterations(4);
+	m_nonlinSolver->setStopCriterion(pressio::nonlinearsolvers::Stop::AfterMaxIters);
+
+#elif defined(SCHWARZ_PERF_E)
+	m_nonlinSolver->setMaxIterations(4);
+	m_nonlinSolver->setStopCriterion(pressio::nonlinearsolvers::Stop::AfterMaxIters);
+#elif defined(SCHWARZ_PERF_F)
+	// nothing to do
+#else
+        m_nonlinSolver->setStopTolerance(1e-5);
+#endif
     }
 
     state_t & getLastStateInHistory() final { return m_stateHistVec.back(); }
@@ -205,10 +274,10 @@ public:
     }
 
     void doStep(pode::StepStartAt<double> startTime,
-        pode::StepCount step,
-        pode::StepSize<double> dt) final
+		pode::StepCount step,
+		pode::StepSize<double> dt) final
     {
-        m_stepper(m_state, startTime, step, dt, m_nonlinSolver);
+      m_stepper(m_state, startTime, step, dt, *m_nonlinSolver);
     }
 
     void storeStateHistory(const int step) final {
@@ -223,6 +292,18 @@ public:
         // noop
     }
 
+#if defined(SCHWARZ_PERF_A)
+    void _evaluate_app_rhs_and_jacobian() final {
+      (*m_app)(m_state_perf, 0., m_vel_perf, m_jac_perf, true);
+    };
+
+    // void doStepFakeSolver(pode::StepCount step) final{
+    //   m_stepper(m_state, pressio::ode::StepStartAt(0.), step,
+    // 		pressio::ode::StepSize<double>(0.1),
+    // 		m_fakeNonLinSolver);
+    // }
+#endif
+
 public:
     int m_domIdx;
     mesh_t const * m_mesh;
@@ -233,11 +314,16 @@ public:
     state_t m_state;
     state_t m_stateBCs;
     std::vector<state_t> m_stateHistVec;
-
     stepper_t m_stepper;
     std::shared_ptr<linsolver_t> m_linSolverObj;
-    nonlinsolver_t m_nonlinSolver;
+    std::shared_ptr<nonlinsolver_t> m_nonlinSolver;
 
+#if defined(SCHWARZ_PERF_A)
+    state_t m_state_perf;
+    state_t m_vel_perf;
+    jacob_t m_jac_perf;
+#endif
+    // FakeSolver m_fakeNonLinSolver = {};
 };
 
 
