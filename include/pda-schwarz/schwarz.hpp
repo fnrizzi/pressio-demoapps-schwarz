@@ -789,7 +789,8 @@ private:
 
                 if (!additive) { broadcast_bcState(domIdx); }
 
-#if !defined(SCHWARZ_PERF_B) && !defined(SCHWARZ_PERF_C) && !defined(SCHWARZ_PERF_D) && !defined(SCHWARZ_PERF_E) && !defined(SCHWARZ_PERF_F)
+#if !defined(SCHWARZ_PERF_B) && !defined(SCHWARZ_PERF_C) \
+  && !defined(SCHWARZ_PERF_D) && !defined(SCHWARZ_PERF_E) && !defined(SCHWARZ_PERF_F)
                 const auto runtimeEnd = std::chrono::high_resolution_clock::now();
 		const auto duration = std::chrono::duration_cast<
 		    std::chrono::nanoseconds>(runtimeEnd - runtimeStart);
@@ -815,7 +816,8 @@ private:
             }
             abs_err /= ndomains;
             rel_err /= ndomains;
-#if !defined(SCHWARZ_PERF_B) && !defined(SCHWARZ_PERF_C) && !defined(SCHWARZ_PERF_D) && !defined(SCHWARZ_PERF_E) && !defined(SCHWARZ_PERF_F)
+#if !defined(SCHWARZ_PERF_B) && !defined(SCHWARZ_PERF_C) \
+  && !defined(SCHWARZ_PERF_D) && !defined(SCHWARZ_PERF_E) && !defined(SCHWARZ_PERF_F)
 	    std::cout << "Schwarz iteration " << 1 + convergeStep << ", "
 		      << "Average abs/rel err: " << abs_err << ' ' << rel_err << '\n';
  	    if ((rel_err < rel_err_tol) || (abs_err < abs_err_tol)) { break; }

@@ -29,11 +29,12 @@ int parse_num_threads(int argc, char *argv[])
 
 #if defined SCHWARZ_PERF_A
 template<class app_t>
-void run_A(BS::thread_pool & pool,
+void run_A(const std::string & ml,
+	   BS::thread_pool & pool,
 	   pda::InviscidFluxReconstruction invFluxRec,
 	   int numSteps)
 {
-  std::string meshRoot = "./mesh_a/mesh";
+  std::string meshRoot = "./mesh_" + ml + "/mesh";
   const auto probId = pda::Swe2d::CustomBCs;
 
   const auto scheme = pode::StepScheme::BDF1;
@@ -52,7 +53,6 @@ void run_A(BS::thread_pool & pool,
   decomp._testonlydemoappsevaluation(pool);
 
   // timed loop
-  std::cout << "numSteps " << numSteps << std::endl;
   auto runtimeStart = std::chrono::high_resolution_clock::now();
   for (int outerStep = 1; outerStep <= numSteps; ++outerStep){
     decomp._testonlydemoappsevaluation(pool);
@@ -66,12 +66,13 @@ void run_A(BS::thread_pool & pool,
 
 #if defined(SCHWARZ_PERF_B) || defined(SCHWARZ_PERF_C) || defined(SCHWARZ_PERF_D) || defined(SCHWARZ_PERF_E) || defined(SCHWARZ_PERF_F)
 template<class app_t>
-void realrun(BS::thread_pool & pool,
+void realrun(const std::string & ml,
+	     BS::thread_pool & pool,
 	     pda::InviscidFluxReconstruction invFluxRec,
 	     int numSteps,
 	     int convStepMax)
 {
-  std::string meshRoot = "./mesh_a/mesh";
+  std::string meshRoot = "./mesh_" + ml + "/mesh";
   const auto probId = pda::Swe2d::CustomBCs;
 
   const auto scheme = pode::StepScheme::BDF1;
@@ -98,7 +99,6 @@ void realrun(BS::thread_pool & pool,
   }
 
   // timed loop
-  std::cout << "numSteps " << numSteps << std::endl;
   time = 0.0;
   auto runtimeStart = std::chrono::high_resolution_clock::now();
   for (int outerStep = 1; outerStep <= numSteps; ++outerStep)
@@ -124,13 +124,10 @@ void realrun(BS::thread_pool & pool,
 int main(int argc, char *argv[])
 {
   const int nt = parse_num_threads(argc, argv);
-  const int order = std::stoi(argv[2]);
-  const int numSteps = std::stoi(argv[3]);
-  std::cout << "nthreads = " << nt << '\n';
-  std::cout << "order = " << order << '\n';
-  std::cout << "numSteps = " << numSteps << '\n';
+  const std::string mesh_label = argv[2];
+  const int order = std::stoi(argv[3]);
+  const int numSteps = std::stoi(argv[4]);
   BS::thread_pool pool(nt);
-
 
   pda::InviscidFluxReconstruction fluxE;
   if (order == 1){
@@ -144,13 +141,22 @@ int main(int argc, char *argv[])
   }
 
 #if defined(SCHWARZ_PERF_A)
-  run_A<pdas::swe2d_app_type>(pool, fluxE, numSteps);
+  std::cout << "nthreads = " << nt << ' '
+	    << ", order = " << order << ' '
+	    << ", numSteps = " << numSteps << '\n';
+  run_A<pdas::swe2d_app_type>(mesh_label, pool, fluxE, numSteps);
 #endif
 
-#if defined(SCHWARZ_PERF_B) || defined(SCHWARZ_PERF_C) || defined(SCHWARZ_PERF_D) || defined(SCHWARZ_PERF_E) || defined(SCHWARZ_PERF_F)
-  const int convStepMax = std::stoi(argv[4]);
-  std::cout << "convStepMax = " << convStepMax << '\n';
-  realrun<pdas::swe2d_app_type>(pool, fluxE, numSteps, convStepMax);
+#if defined(SCHWARZ_PERF_B) || defined(SCHWARZ_PERF_C) \
+  || defined(SCHWARZ_PERF_D) || defined(SCHWARZ_PERF_E) || defined(SCHWARZ_PERF_F)
+
+  const int convStepMax = std::stoi(argv[5]);
+  std::cout << "nthreads = " << nt << ' '
+	    << ", order = " << order << ' '
+	    << ", numSteps = " << numSteps << ' '
+	    << ", convStepMax = " << convStepMax << '\n';
+
+  realrun<pdas::swe2d_app_type>(mesh_label, pool, fluxE, numSteps, convStepMax);
 #endif
 
   return 0;

@@ -206,6 +206,7 @@ public:
 #elif defined(SCHWARZ_PERF_E)
 	m_nonlinSolver->setMaxIterations(4);
 	m_nonlinSolver->setStopCriterion(pressio::nonlinearsolvers::Stop::AfterMaxIters);
+
 #elif defined(SCHWARZ_PERF_F)
 	// nothing to do
 #else
