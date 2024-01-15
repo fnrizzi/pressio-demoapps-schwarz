@@ -27,9 +27,23 @@ int parse_num_threads(int argc, char *argv[])
   return numthreads;
 }
 
-#if defined SCHWARZ_PERF_A
+auto get_flux_enum(int stencilsize){
+  pda::InviscidFluxReconstruction fluxE;
+  if (stencilsize == 3){
+    fluxE = pda::InviscidFluxReconstruction::FirstOrder;
+  }
+  else if (stencilsize == 5){
+    fluxE = pda::InviscidFluxReconstruction::Weno3;
+  }
+  else{
+    throw std::runtime_error("invalid order");
+  }
+  return fluxE;
+}
+
+#if defined SCHWARZ_PERF_A2
 template<class app_t>
-void run_A(const std::string & ml,
+void run_a2(const std::string & ml,
 	   BS::thread_pool & pool,
 	   pda::InviscidFluxReconstruction invFluxRec,
 	   int numSteps)
@@ -64,7 +78,8 @@ void run_A(const std::string & ml,
 }
 #endif
 
-#if defined(SCHWARZ_PERF_B) || defined(SCHWARZ_PERF_C) || defined(SCHWARZ_PERF_D) || defined(SCHWARZ_PERF_E) || defined(SCHWARZ_PERF_F)
+#if defined(SCHWARZ_PERF_B) || defined(SCHWARZ_PERF_C) \
+  || defined(SCHWARZ_PERF_D) || defined(SCHWARZ_PERF_E) || defined(SCHWARZ_PERF_F)
 template<class app_t>
 void realrun(const std::string & ml,
 	     BS::thread_pool & pool,
@@ -119,45 +134,136 @@ void realrun(const std::string & ml,
 }
 #endif
 
+#if defined(SCHWARZ_PERF_A1)
 
-
-int main(int argc, char *argv[])
+void run_a1(const std::string & mesh_path,
+	    int numsubs, int ssize, int numsteps)
 {
-  const int nt = parse_num_threads(argc, argv);
-  const std::string mesh_label = argv[2];
-  const int order = std::stoi(argv[3]);
-  const int numSteps = std::stoi(argv[4]);
-  BS::thread_pool pool(nt);
+  const auto probId  = pda::Swe2d::SlipWall;
+  const auto meshObj = pda::load_cellcentered_uniform_mesh_eigen(mesh_path);
 
-  pda::InviscidFluxReconstruction fluxE;
-  if (order == 1){
-    fluxE = pda::InviscidFluxReconstruction::FirstOrder;
-  }
-  else if (order==3){
-    fluxE = pda::InviscidFluxReconstruction::Weno3;
-  }
-  else{
-    throw std::runtime_error("invalid order");
+  using app_t = decltype(pda::create_problem_eigen(meshObj, probId, get_flux_enum(ssize), 1));
+  using v_t = typename app_t::state_type;
+  using m_t = typename app_t::jacobian_type;
+
+  int numth = 0;
+  double avgruntime = 0.;
+  std::vector<std::shared_ptr<app_t>> apps(numsubs, nullptr);
+#pragma omp parallel reduction (+:avgruntime)
+  {
+    #pragma omp single
+    {
+      numth = omp_get_num_threads();
+    }
+
+    v_t s;
+    v_t f;
+    m_t j;
+
+    #pragma omp for schedule(static)
+    for (int i=0; i<numsubs; ++i){
+      apps[i] = std::make_shared<app_t>(pda::create_problem_eigen(meshObj, probId, get_flux_enum(ssize), 1));
+      s = apps[i]->initialCondition();
+      f = apps[i]->createRhs();
+      j = apps[i]->createJacobian();
+    }
+
+    auto runtimeStart = std::chrono::high_resolution_clock::now();
+    auto lam = [&](int i){
+      for (int k=0; k<numsteps; ++k){
+	(*apps[i])(s, 0., f, j, true);
+      }
+    };
+
+    #pragma omp for schedule(static)
+    for (int i=0; i<numsubs; ++i){
+      lam(i);
+    }
+    const auto runtimeEnd = std::chrono::high_resolution_clock::now();
+    const auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(runtimeEnd - runtimeStart);
+    const double elapsed = static_cast<double>(duration.count());
+    avgruntime += elapsed/numsteps;
+  }//parallel
+
+  std::cout << "time: ms/threads = " << avgruntime/numth << ' '<< numth << '\n';
+}
+#endif
+
+int read_stencil_size(const std::string & mesh_path)
+{
+  const std::string filename = mesh_path + "/info.dat";
+  std::ifstream foundFile(filename);
+  if(!foundFile){
+    std::cout << "file not found " << filename << std::endl;
+    exit(EXIT_FAILURE);
   }
 
-#if defined(SCHWARZ_PERF_A)
-  std::cout << "nthreads = " << nt << ' '
-	    << ", order = " << order << ' '
+  int ssize = 0;
+  std::ifstream source( filename, std::ios_base::in);
+  std::string line;
+  while (std::getline(source, line) )
+    {
+      std::istringstream ss(line);
+      std::string colVal;
+      ss >> colVal;
+
+      if (colVal == "stencilSize"){
+	ss >> colVal;
+	ssize = std::stoi(colVal);
+      }
+    }
+  source.close();
+  return ssize;
+}
+
+// =============================================
+int main(int argc, char *argv[])
+// =============================================
+{
+
+#if defined(SCHWARZ_PERF_A1)
+  const std::string mesh_path = argv[1];
+  const int numsubs  = std::stoi(argv[2]);
+  const int numSteps = std::stoi(argv[3]);
+  const int ssize = read_stencil_size(mesh_path);
+
+  std::cout << "mesh_path = " << mesh_path << ' '
+	    << ", numsubs = " << numsubs << ' '
+	    << ", ssize = " << ssize << ' '
 	    << ", numSteps = " << numSteps << '\n';
-  run_A<pdas::swe2d_app_type>(mesh_label, pool, fluxE, numSteps);
+  run_a1(mesh_path, numsubs, ssize, numSteps);
 #endif
 
-#if defined(SCHWARZ_PERF_B) || defined(SCHWARZ_PERF_C) \
-  || defined(SCHWARZ_PERF_D) || defined(SCHWARZ_PERF_E) || defined(SCHWARZ_PERF_F)
+// #if defined(SCHWARZ_PERF_A2)
+//   const int nt = parse_num_threads(argc, argv);
+//   const std::string mesh_label = argv[2];
+//   const int order = std::stoi(argv[3]);
+//   const int numSteps = std::stoi(argv[4]);
+//   BS::thread_pool pool(nt);
 
-  const int convStepMax = std::stoi(argv[5]);
-  std::cout << "nthreads = " << nt << ' '
-	    << ", order = " << order << ' '
-	    << ", numSteps = " << numSteps << ' '
-	    << ", convStepMax = " << convStepMax << '\n';
+//   std::cout << "nthreads = " << nt << ' '
+// 	    << ", order = " << order << ' '
+// 	    << ", numSteps = " << numSteps << '\n';
+//   run_a2<pdas::swe2d_app_type>(mesh_label, pool, get_flux_enum(order), numSteps);
+// #endif
 
-  realrun<pdas::swe2d_app_type>(mesh_label, pool, fluxE, numSteps, convStepMax);
-#endif
+// #if defined(SCHWARZ_PERF_B) || defined(SCHWARZ_PERF_C) \
+//   || defined(SCHWARZ_PERF_D) || defined(SCHWARZ_PERF_E) || defined(SCHWARZ_PERF_F)
+
+//   const int nt = parse_num_threads(argc, argv);
+//   const std::string mesh_label = argv[2];
+//   const int order = std::stoi(argv[3]);
+//   const int numSteps = std::stoi(argv[4]);
+//   const int convStepMax = std::stoi(argv[5]);
+//   std::cout << "nthreads = " << nt << ' '
+// 	    << ", order = " << order << ' '
+// 	    << ", numSteps = " << numSteps << ' '
+// 	    << ", convStepMax = " << convStepMax << '\n';
+
+//   BS::thread_pool pool(nt);
+//   realrun<pdas::swe2d_app_type>(mesh_label, pool, get_flux_enum(order),
+// 				numSteps, convStepMax);
+// #endif
 
   return 0;
 }

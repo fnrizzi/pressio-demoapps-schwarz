@@ -722,7 +722,7 @@ public:
     }
 
 
-#if defined(SCHWARZ_PERF_A)
+#if defined(SCHWARZ_PERF_A2)
     // this is only supposed to exercise demoapps evalations
     void _testonlydemoappsevaluation(BS::thread_pool & pool){
       const auto & tiling = *m_tiling;

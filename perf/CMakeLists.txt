@@ -11,16 +11,23 @@ include_directories(
   ${PRESSIO_SOURCE}/include
   ${CMAKE_CURRENT_SOURCE_DIR}/../include)
 
-# find_package(OpenMP)
+find_package(OpenMP)
 # link_libraries(OpenMP::OpenMP_CXX pthread)
+#link_libraries(stdc++fs)
 
-link_libraries(stdc++fs)
-
-# case a: we just test performance of calling demoapps repeteadly
-set(exename perfexe_a)
+# just test performance of calling demoapps repeteadly
+set(exename perfexe_a1)
 add_executable(${exename} ${CMAKE_CURRENT_SOURCE_DIR}/main.cc)
-target_compile_definitions(${exename} PRIVATE PRESSIO_ENABLE_TPL_EIGEN SCHWARZ_PERF_A)
+target_compile_definitions(${exename} PRIVATE PRESSIO_ENABLE_TPL_EIGEN SCHWARZ_PERF_A1)
 target_compile_options(${exename} PRIVATE $<$<COMPILE_LANGUAGE:CXX>:-march=native>)
+target_link_libraries(${exename} OpenMP::OpenMP_CXX)
+
+# similar to above but subdomains are used
+set(exename perfexe_a2)
+add_executable(${exename} ${CMAKE_CURRENT_SOURCE_DIR}/main.cc)
+target_compile_definitions(${exename} PRIVATE PRESSIO_ENABLE_TPL_EIGEN SCHWARZ_PERF_A2)
+target_compile_options(${exename} PRIVATE $<$<COMPILE_LANGUAGE:CXX>:-march=native>)
+
 
 # case b: this runs the actual real thing, but use max nonliniter = 7
 set(exename perfexe_b)

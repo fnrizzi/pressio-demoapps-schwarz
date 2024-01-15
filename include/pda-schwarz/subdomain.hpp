@@ -112,7 +112,7 @@ public:
     virtual void setBCPointer(pda::impl::GhostRelativeLocation, graph_t *) = 0;
     virtual state_t & getLastStateInHistory() = 0;
 
-#if defined(SCHWARZ_PERF_A)
+#if defined(SCHWARZ_PERF_A2)
   virtual void _evaluate_app_rhs_and_jacobian(){};
 #endif
 };
@@ -176,7 +176,7 @@ public:
 #else
     , m_nonlinSolver(std::make_shared<nonlinsolver_t>(pressio::create_newton_solver(m_stepper, *m_linSolverObj)))
 #endif
-#if defined(SCHWARZ_PERF_A)
+#if defined(SCHWARZ_PERF_A2)
     , m_state_perf(m_app->initialCondition())
     , m_vel_perf(m_state_perf)
     , m_jac_perf(m_app->createJacobian())
@@ -293,7 +293,7 @@ public:
         // noop
     }
 
-#if defined(SCHWARZ_PERF_A)
+#if defined(SCHWARZ_PERF_A2)
     void _evaluate_app_rhs_and_jacobian() final {
       (*m_app)(m_state_perf, 0., m_vel_perf, m_jac_perf, true);
     };
@@ -319,7 +319,7 @@ public:
     std::shared_ptr<linsolver_t> m_linSolverObj;
     std::shared_ptr<nonlinsolver_t> m_nonlinSolver;
 
-#if defined(SCHWARZ_PERF_A)
+#if defined(SCHWARZ_PERF_A2)
     state_t m_state_perf;
     state_t m_vel_perf;
     jacob_t m_jac_perf;
