@@ -16,7 +16,7 @@ else()
   message("run succeeded!")
 endif()
 
-set(CMD "python3 compare.py")
+set(CMD "python3 compare.py --golddir ${OUTDIR}")
 execute_process(COMMAND ${BASH} -c ${CMD} RESULT_VARIABLE RES)
 if(RES)
   message(FATAL_ERROR "comparison failed")

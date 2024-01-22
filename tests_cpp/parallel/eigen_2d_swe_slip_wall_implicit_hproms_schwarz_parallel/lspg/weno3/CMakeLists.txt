@@ -11,7 +11,7 @@ foreach(DOM RANGE 11)
 endforeach()
 
 add_executable(${exename} ${CMAKE_CURRENT_SOURCE_DIR}/../main.cc)
-target_compile_definitions(${exename} PUBLIC -DUSE_WENO3)
+target_compile_definitions(${exename} PUBLIC USE_WENO3 SCHWARZ_ENABLE_OMP)
 
 add_test(NAME ${testname}
 COMMAND ${CMAKE_COMMAND}
@@ -22,4 +22,3 @@ COMMAND ${CMAKE_COMMAND}
 -DSTENCILVAL=5
 -P ${CMAKE_CURRENT_SOURCE_DIR}/../test.cmake
 )
-

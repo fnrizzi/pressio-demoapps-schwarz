@@ -11,6 +11,7 @@ foreach(DOM RANGE 11)
 endforeach()
 
 add_executable(${exename} ${CMAKE_CURRENT_SOURCE_DIR}/../main.cc)
+target_compile_definitions(${exename} PRIVATE SCHWARZ_ENABLE_OMP)
 
 add_test(NAME ${testname}
 COMMAND ${CMAKE_COMMAND}
@@ -21,4 +22,3 @@ COMMAND ${CMAKE_COMMAND}
 -DSTENCILVAL=3
 -P ${CMAKE_CURRENT_SOURCE_DIR}/../test.cmake
 )
-

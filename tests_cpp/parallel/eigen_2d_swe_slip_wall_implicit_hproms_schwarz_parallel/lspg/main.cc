@@ -71,7 +71,6 @@ int main(int argc, char *argv[])
     RuntimeObserver obs_time("runtime.bin", (*tiling).count());
 
     // solve
-    BS::thread_pool pool(numthreads);
     const int numSteps = tf / decomp.m_dtMax;
     double time = 0.0;
     for (int outerStep = 1; outerStep <= numSteps; ++outerStep)
@@ -80,13 +79,8 @@ int main(int argc, char *argv[])
 
         // compute contoller step until convergence
         auto runtimeIter = decomp.calc_controller_step(
-            pdas::SchwarzMode::Additive,
-            outerStep,
-            time,
-            rel_err_tol,
-            abs_err_tol,
-            convergeStepMax,
-	    pool
+            pdas::SchwarzMode::Additive, outerStep,
+            time, rel_err_tol, abs_err_tol, convergeStepMax
         );
 
         time += decomp.m_dtMax;
