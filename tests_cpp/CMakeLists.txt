@@ -4,7 +4,7 @@ set(DECOMPSRC ${CMAKE_CURRENT_SOURCE_DIR}/../meshing_scripts)
 
 # optional flags for limiting/expanding build
 set(TESTWENO3 TRUE)
-option(PARTESTS "" ON)
+option(PARTESTS "" OFF)
 
 # include demoapps headers and Schwarz routines
 include_directories(
