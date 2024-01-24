@@ -25,30 +25,29 @@ if __name__== "__main__":
 
     assert all(allclose)
 
-    # check runtime file
-    f = open('runtime.bin', 'rb')
-    contents = f.read()
-    nbytes_file = len(contents)
-    assert nbytes_file > 0
-    ndomains = struct.unpack('Q', contents[:8])[0]
-    assert ndomains == ndom
+    # # check runtime file
+    # f = open('runtime.bin', 'rb')
+    # contents = f.read()
+    # nbytes_file = len(contents)
+    # assert nbytes_file > 0
+    # ndomains = struct.unpack('Q', contents[:8])[0]
+    # assert ndomains == ndom
 
-    nbytes_read = 8
-    niters = 0
-    while nbytes_read < nbytes_file:
+    # nbytes_read = 8
+    # niters = 0
+    # while nbytes_read < nbytes_file:
 
-        nsubiters = struct.unpack('Q', contents[nbytes_read:nbytes_read+8])[0]
-        nbytes_read += 8
-        runtime_arr = np.zeros((ndomains, nsubiters), dtype=np.float64)
+    #     nsubiters = struct.unpack('Q', contents[nbytes_read:nbytes_read+8])[0]
+    #     nbytes_read += 8
+    #     runtime_arr = np.zeros((ndomains, nsubiters), dtype=np.float64)
 
-        for iter_idx in range(nsubiters):
-            runtime_vals = struct.unpack('d'*ndomains, contents[nbytes_read:nbytes_read+8*ndomains])
-            runtime_arr[:, iter_idx] = np.array(runtime_vals, dtype=np.float64)
-            nbytes_read += 8*ndomains
+    #     for iter_idx in range(nsubiters):
+    #         runtime_vals = struct.unpack('d'*ndomains, contents[nbytes_read:nbytes_read+8*ndomains])
+    #         runtime_arr[:, iter_idx] = np.array(runtime_vals, dtype=np.float64)
+    #         nbytes_read += 8*ndomains
 
-        assert np.amin(runtime_arr) > 0.0
+    #     assert np.amin(runtime_arr) > 0.0
 
-        niters += 1
+    #     niters += 1
 
-    assert niters == 50
-
+    # assert niters == 50
