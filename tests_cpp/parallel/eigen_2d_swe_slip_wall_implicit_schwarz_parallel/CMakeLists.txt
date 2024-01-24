@@ -1,6 +1,11 @@
 
-list(APPEND CASES firstorder weno3)
-list(APPEND SSIZES 3 5)
+list(APPEND CASES firstorder)
+list(APPEND SSIZES 3)
+if(${TESTWENO3})
+  list(APPEND CASES weno3)
+  list(APPEND SSIZES 5)
+endif()
+
 foreach(case ss IN ZIP_LISTS CASES SSIZES)
 
   set(TESTDIR ${CMAKE_CURRENT_BINARY_DIR}/${case})
@@ -10,6 +15,7 @@ foreach(case ss IN ZIP_LISTS CASES SSIZES)
   set(testname eigen_2d_swe_slip_wall_${case}_implicit_schwarz_parallel)
 
   configure_file(compare.py compare.py COPYONLY)
+  configure_file(plot.py ${TESTDIR}/plot.py COPYONLY)
   foreach(DOM RANGE 11)
     configure_file(${CMAKE_CURRENT_SOURCE_DIR}/${case}/h_gold_${DOM}.txt ${TESTDIR}/h_gold_${DOM}.txt COPYONLY)
   endforeach()
@@ -46,12 +52,12 @@ foreach(case ss IN ZIP_LISTS CASES SSIZES)
 
     add_test(NAME ${testname}_tp
     COMMAND ${CMAKE_COMMAND}
-    -DMESHDRIVER=${MESHSRC}/create_full_mesh.py
-    -DDECOMPDRIVER=${DECOMPSRC}/create_decomp_meshes.py
-    -DOUTDIR=${TESTDIR}
-    -DEXENAME=$<TARGET_FILE:${exename}>
-    -DSTENCILVAL=${ss}
-    -P ${CMAKE_CURRENT_SOURCE_DIR}/test.cmake
+      -DMESHDRIVER=${MESHSRC}/create_full_mesh.py
+      -DDECOMPDRIVER=${DECOMPSRC}/create_decomp_meshes.py
+      -DOUTDIR=${TESTDIR}
+      -DEXENAME=$<TARGET_FILE:${exename}>
+      -DSTENCILVAL=${ss}
+      -P ${CMAKE_CURRENT_SOURCE_DIR}/test.cmake
     )
   endif()
 
