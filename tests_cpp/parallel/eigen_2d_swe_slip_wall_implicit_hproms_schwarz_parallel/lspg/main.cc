@@ -66,7 +66,6 @@ int main(int argc, char *argv[])
 #if defined SCHWARZ_ENABLE_OMP
 
     const int numSteps = tf / decomp.m_dtMax;
-    std::cout << "numSteps " << numSteps << std::endl;
     double looptime = 0.;
     int numth = 0;
     int threadCount = 0;
@@ -75,29 +74,29 @@ int main(int argc, char *argv[])
 {
 #pragma omp single
     {
-      threadCount = omp_get_num_threads();
+        threadCount = omp_get_num_threads();
     }
 
-  auto loop = [&](int outerStep, double simultime){
-    decomp.additive_step(outerStep, simultime, rel_err_tol, abs_err_tol, convergeStepMax);
-  };
+    auto loop = [&](int outerStep, double simultime){
+        decomp.additive_step(outerStep, simultime, rel_err_tol, abs_err_tol, convergeStepMax);
+    };
 
-  auto runtimeStart = std::chrono::high_resolution_clock::now();
-  double simultime = 0.0;
-  for (int outerStep = 1; outerStep <= numSteps; ++outerStep)
-  {
-#pragma omp single
+    auto runtimeStart = std::chrono::high_resolution_clock::now();
+    double simultime = 0.0;
+    for (int outerStep = 1; outerStep <= numSteps; ++outerStep)
     {
-      std::cout << "Step " << outerStep << std::endl;
+#pragma omp single
+        {
+            std::cout << "Step " << outerStep << std::endl;
+        }
+        loop(outerStep, simultime);
+        simultime += decomp.m_dtMax;
     }
-    loop(outerStep, simultime);
-    simultime += decomp.m_dtMax;
-  }
-  const auto runtimeEnd = std::chrono::high_resolution_clock::now();
-  const auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(runtimeEnd - runtimeStart);
-  const double elapsed = static_cast<double>(duration.count());
-  const double myavg = elapsed/numSteps;
-  looptime += myavg;
+    const auto runtimeEnd = std::chrono::high_resolution_clock::now();
+    const auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(runtimeEnd - runtimeStart);
+    const double elapsed = static_cast<double>(duration.count());
+    const double myavg = elapsed/numSteps;
+    looptime += myavg;
 }
 
  std::cout << "looptime/thread_count (ms) = " << looptime/threadCount << '\n';
@@ -118,13 +117,12 @@ int main(int argc, char *argv[])
     // solve
     BS::thread_pool pool(numthreads);
     const int numSteps = tf / decomp.m_dtMax;
-    std::cout << "numSteps " << numSteps << std::endl;
     double time = 0.0;
     for (int outerStep = 1; outerStep <= numSteps; ++outerStep)
     {
         std::cout << "Step " << outerStep << std::endl;
         decomp.additive_step(outerStep, time, rel_err_tol,
-			     abs_err_tol, convergeStepMax, pool);
+                             abs_err_tol, convergeStepMax, pool);
         time += decomp.m_dtMax;
         if ((outerStep % obsFreq) == 0) {
             const auto stepWrap = pode::StepCount(outerStep);

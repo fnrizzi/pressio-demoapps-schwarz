@@ -694,61 +694,62 @@ private:
 
 public:
 
-  void additive_step(int outerStep, double currentTime,
-		     const double rel_err_tol, const double abs_err_tol,
-		     const int convergeStepMax, BS::thread_pool & pool)
-  {
-    const auto & tiling = *m_tiling;
-    const auto ndomains = tiling.count();
+    void additive_step(int outerStep, double currentTime,
+                       const double rel_err_tol, const double abs_err_tol,
+                       const int convergeStepMax, BS::thread_pool & pool)
+    {
+        const auto & tiling = *m_tiling;
+        const auto ndomains = tiling.count();
 
-    for (int domIdx = 0; domIdx < ndomains; ++domIdx) {
-      m_subdomainVec[domIdx]->storeStateHistory(0);
+        for (int domIdx = 0; domIdx < ndomains; ++domIdx) {
+            m_subdomainVec[domIdx]->storeStateHistory(0);
+        }
+
+        Eigen::Matrix<Errors, -1, -1, Eigen::RowMajor> errs(ndomains, 16);
+        int convergeStep = 0;
+        while (convergeStep < convergeStepMax) {
+            m_ae = {};
+            m_re = {};
+            for (int i = 0; i < errs.rows(); ++i) {
+                for (int j = 0; j < errs.cols(); ++j) {
+                    errs(i, j) = {};
+                }
+            }
+
+        auto task1 = [&](int domIdx) {
+            domainControlLoop(domIdx, currentTime, outerStep, errs(domIdx, 0));
+        };
+        pool.detach_loop<int>(0, ndomains, task1);
+        pool.wait();
+
+        for(int i = 0 ; i < ndomains ; ++i){
+            m_ae += errs(i, 0).m_absolute;
+            m_re += errs(i, 0).m_relative;
+        }
+        m_re /= double(ndomains);
+        m_ae /= double(ndomains);
+        std::cout << "Schwarz iteration " << convergeStep + 1 << '\n';
+        std::cout << "Average abs|rel err: " << m_ae << ' ' << m_re << '\n';
+
+        if ((m_re < rel_err_tol) || (m_ae < abs_err_tol)) {
+            break;
+        }
+        convergeStep++;
+
+        auto task = [&](const int domIdx){ broadcast_bcState(domIdx); };
+        pool.detach_loop<int>(0, ndomains, task);
+        pool.wait();
+
+        auto taskreset = [&](const int domIdx){ m_subdomainVec[domIdx]->resetStateFromHistory(); };
+        pool.detach_loop<int>(0, ndomains, taskreset);
+        pool.wait();
+        }
     }
 
-    Eigen::Matrix<Errors, -1, -1, Eigen::RowMajor> errs(ndomains, 16);
-    int convergeStep = 0;
-    while (convergeStep < convergeStepMax){
-	m_ae = {};
-	m_re = {};
-	for (int i=0; i<errs.rows(); ++i){
-	  for (int j=0; j<errs.cols(); ++j){
-	    errs(i,j) = {};
-	  }
-	}
-
-	auto task1 = [&](int domIdx){
-	  domainControlLoop(domIdx, currentTime, outerStep, errs(domIdx,0));
-	};
-	pool.detach_loop<int>(0, ndomains, task1);
-	pool.wait();
-
-	for(int i=0 ; i<ndomains ; ++i){
-	  m_ae += errs(i,0).m_absolute;
-	  m_re += errs(i,0).m_relative;
-	}
-	m_re /= double(ndomains); m_ae /= double(ndomains);
-	std::cout << "Schwarz iteration " << convergeStep + 1 << '\n';
-	std::cout << "Average abs|rel err: " << m_ae << ' ' << m_re << '\n';
-
-	if ((m_re < rel_err_tol) || (m_ae < abs_err_tol)) {
-	  break;
-	}
-	convergeStep++;
-
-	auto task = [&](const int domIdx){ broadcast_bcState(domIdx); };
-	pool.detach_loop<int>(0, ndomains, task);
-	pool.wait();
-
-	auto taskreset = [&](const int domIdx){ m_subdomainVec[domIdx]->resetStateFromHistory(); };
-	pool.detach_loop<int>(0, ndomains, taskreset);
-	pool.wait();
-    }
-  }
-
-  void additive_step(int outerStep, double currentTime,
-		     const double rel_err_tol, const double abs_err_tol,
-		     const int convergeStepMax)
-  {
+    void additive_step(int outerStep, double currentTime,
+                       const double rel_err_tol, const double abs_err_tol,
+                       const int convergeStepMax)
+    {
         const auto & tiling = *m_tiling;
         const auto ndomains = tiling.count();
 
@@ -756,74 +757,74 @@ public:
 #pragma omp for schedule(static)
 #endif
         for (int domIdx = 0; domIdx < ndomains; ++domIdx) {
-	  m_subdomainVec[domIdx]->storeStateHistory(0);
-	}
+            m_subdomainVec[domIdx]->storeStateHistory(0);
+        }
 
 #if defined SCHWARZ_ENABLE_OMP
-	const int threadCount = omp_get_num_threads();
+        const int threadCount = omp_get_num_threads();
 #else
-	const int threadCount = 1;
+        const int threadCount = 1;
 #endif
-	Errors myerrs = {};
-	int convergeStep = 0;
+        Errors myerrs = {};
+        int convergeStep = 0;
         while (convergeStep < convergeStepMax)
-	{
+        {
 
 #if defined SCHWARZ_ENABLE_OMP
 #pragma omp master
 #endif
-	  {
-	    m_ae = {};
-	    m_re = {};
-	  }
+            {
+                m_ae = {};
+                m_re = {};
+            }
 
-	  myerrs = {};
+            myerrs = {};
 #if defined SCHWARZ_ENABLE_OMP
 #pragma omp for schedule(dynamic)
 #endif
-	  for (int domIdx = 0; domIdx < ndomains; ++domIdx) {
-	    domainControlLoop(domIdx, currentTime, outerStep, myerrs);
-	  }
+            for (int domIdx = 0; domIdx < ndomains; ++domIdx) {
+                domainControlLoop(domIdx, currentTime, outerStep, myerrs);
+            }
 
 #if defined SCHWARZ_ENABLE_OMP
 #pragma omp for reduction (+: m_ae, m_re)
 #endif
-	  for(int i=0 ; i<threadCount ; ++i){
-	    m_ae += myerrs.m_absolute;
-	    m_re += myerrs.m_relative;
-	  }
+            for(int i = 0 ; i < threadCount; ++i){
+                m_ae += myerrs.m_absolute;
+                m_re += myerrs.m_relative;
+            }
 
 #if defined SCHWARZ_ENABLE_OMP
 #pragma omp master
 #endif
-	  {
-	    m_re /= double(ndomains); m_ae /= double(ndomains);
-	    std::cout << "Schwarz iteration " << convergeStep + 1 << '\n';
-	    std::cout << "Average abs|rel err: " << m_ae << ' ' << m_re << '\n';
-	  }
+            {
+                m_re /= double(ndomains); m_ae /= double(ndomains);
+                std::cout << "Schwarz iteration " << convergeStep + 1 << '\n';
+                std::cout << "Average abs|rel err: " << m_ae << ' ' << m_re << '\n';
+            }
 
 #if defined SCHWARZ_ENABLE_OMP
 #pragma omp barrier
 #endif
-	  if ((m_re < rel_err_tol) || (m_ae < abs_err_tol)) {
-	    break;
-	  }
+            if ((m_re < rel_err_tol) || (m_ae < abs_err_tol)) {
+                break;
+            }
 
-	  convergeStep++;
-
-#if defined SCHWARZ_ENABLE_OMP
-#pragma omp for schedule(dynamic)
-#endif
-	  for (int domIdx = 0; domIdx < ndomains; ++domIdx) {
-	    broadcast_bcState(domIdx);
-	  }
+            convergeStep++;
 
 #if defined SCHWARZ_ENABLE_OMP
 #pragma omp for schedule(dynamic)
 #endif
-	  for (int domIdx = 0; domIdx < ndomains; ++domIdx){
-	    m_subdomainVec[domIdx]->resetStateFromHistory();
-	  }
+            for (int domIdx = 0; domIdx < ndomains; ++domIdx) {
+                broadcast_bcState(domIdx);
+            }
+
+#if defined SCHWARZ_ENABLE_OMP
+#pragma omp for schedule(dynamic)
+#endif
+            for (int domIdx = 0; domIdx < ndomains; ++domIdx){
+                m_subdomainVec[domIdx]->resetStateFromHistory();
+            }
         } // convergence loop
     }
 
@@ -848,22 +849,22 @@ public:
 
         std::vector<std::vector<double>> iterTime(ndomains);
         while (convergeStep < convergeStepMax)
-	{
-	    Errors myerrs = {};
+        {
+            Errors myerrs = {};
             std::cout << "Schwarz iteration " << convergeStep + 1 << '\n';
 
-	    for (int domIdx = 0; domIdx < ndomains; ++domIdx) {
-	      auto runtimeStart = std::chrono::high_resolution_clock::now();
-	      domainControlLoop(domIdx, currentTime, outerStep, myerrs);
+            for (int domIdx = 0; domIdx < ndomains; ++domIdx) {
+                auto runtimeStart = std::chrono::high_resolution_clock::now();
+                domainControlLoop(domIdx, currentTime, outerStep, myerrs);
 
-	      // broadcast boundary conditions immediately for multiplicative Schwarz
-	      if (!additive) { broadcast_bcState(domIdx); }
+                // broadcast boundary conditions immediately for multiplicative Schwarz
+                if (!additive) { broadcast_bcState(domIdx); }
 
-	      auto runtimeEnd = std::chrono::high_resolution_clock::now();
-	      double nsElapsed = static_cast<double>
-		(std::chrono::duration_cast<std::chrono::nanoseconds>(runtimeEnd - runtimeStart).count());
-	      iterTime[domIdx].emplace_back(nsElapsed * 1e-9);
-	    }
+                auto runtimeEnd = std::chrono::high_resolution_clock::now();
+                double nsElapsed = static_cast<double>
+                (std::chrono::duration_cast<std::chrono::nanoseconds>(runtimeEnd - runtimeStart).count());
+                iterTime[domIdx].emplace_back(nsElapsed * 1e-9);
+            }
 
             // // check convergence for all domains, break if conditions met
             myerrs.m_absolute /= ndomains;
@@ -876,15 +877,15 @@ public:
 
             // broadcast boundary conditions after domain cycle for additive Schwarz
             if (additive) {
-		for (int domIdx = 0; domIdx < ndomains; ++domIdx) {
-		  broadcast_bcState(domIdx);
-		}
+                for (int domIdx = 0; domIdx < ndomains; ++domIdx) {
+                    broadcast_bcState(domIdx);
+                }
             }
             convergeStep++;
 
-	    for (int domIdx = 0; domIdx < ndomains; ++domIdx){
-	      m_subdomainVec[domIdx]->resetStateFromHistory();
-	    }
+            for (int domIdx = 0; domIdx < ndomains; ++domIdx){
+                m_subdomainVec[domIdx]->resetStateFromHistory();
+            }
 
         } // convergence loop
 
@@ -892,31 +893,31 @@ public:
     }
 
 private:
-  void domainControlLoop(int domIdx, double currentTime, int outerStep, Errors & errors)
-  {
-    auto timeDom = currentTime;
-    auto stepDom = outerStep * m_controlItersVec[domIdx];
-    const auto dtDom = m_dt[domIdx];
-    const auto dtWrap = pode::StepSize<double>(dtDom);
+    void domainControlLoop(int domIdx, double currentTime, int outerStep, Errors & errors)
+    {
+        auto timeDom = currentTime;
+        auto stepDom = outerStep * m_controlItersVec[domIdx];
+        const auto dtDom = m_dt[domIdx];
+        const auto dtWrap = pode::StepSize<double>(dtDom);
 
-    for (int innerStep = 0; innerStep < m_controlItersVec[domIdx]; ++innerStep) {
-      const auto startTimeWrap = pode::StepStartAt<double>(timeDom);
-      const auto stepWrap = pode::StepCount(stepDom);
-      m_subdomainVec[domIdx]->doStep(startTimeWrap, stepWrap, dtWrap);
-      m_subdomainVec[domIdx]->updateFullState(); // noop for FOM subdomain
+        for (int innerStep = 0; innerStep < m_controlItersVec[domIdx]; ++innerStep) {
+            const auto startTimeWrap = pode::StepStartAt<double>(timeDom);
+            const auto stepWrap = pode::StepCount(stepDom);
+            m_subdomainVec[domIdx]->doStep(startTimeWrap, stepWrap, dtWrap);
+            m_subdomainVec[domIdx]->updateFullState(); // noop for FOM subdomain
 
-      if (innerStep == (m_controlItersVec[domIdx] - 1)) {
-	const auto my_converge = calcConvergence(*m_subdomainVec[domIdx]->getStateStencil(),
-						 m_subdomainVec[domIdx]->getLastStateInHistory());
-	errors.m_absolute += my_converge[0];
-	errors.m_relative += my_converge[1];
-      }
+            if (innerStep == (m_controlItersVec[domIdx] - 1)) {
+                const auto my_converge = calcConvergence(*m_subdomainVec[domIdx]->getStateStencil(),
+                                                         m_subdomainVec[domIdx]->getLastStateInHistory());
+                errors.m_absolute += my_converge[0];
+                errors.m_relative += my_converge[1];
+            }
 
-      m_subdomainVec[domIdx]->storeStateHistory(innerStep+1);
-      stepDom++;
-      timeDom += dtDom;
+            m_subdomainVec[domIdx]->storeStateHistory(innerStep+1);
+            stepDom++;
+            timeDom += dtDom;
+        }
     }
-  }
 
 public:
 
@@ -929,8 +930,8 @@ public:
     std::vector<std::vector<std::vector<std::array<int, 2>>>> m_broadcastGraphVec;
     std::vector<std::vector<graph_t>> m_ghostGraphVec;
     std::vector<int> m_controlItersVec;
-  double m_ae;
-  double m_re;
+    double m_ae;
+    double m_re;
 };
 }
 

@@ -16,7 +16,7 @@ int parse_num_threads(int argc, char *argv[])
     if (argc >= 2){
         numthreads = std::stoi(argv[1]);
         if (numthreads == -1){ numthreads = std::thread::hardware_concurrency(); }
-        std::cout << "Gigi " << numthreads;
+        std::cout << "Running with " << numthreads << " threads\n";
         assert(numthreads >= 1);
     }
     else {
