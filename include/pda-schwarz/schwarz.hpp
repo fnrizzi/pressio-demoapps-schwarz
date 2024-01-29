@@ -728,8 +728,9 @@ public:
         }
         m_re /= double(ndomains);
         m_ae /= double(ndomains);
-        std::cout << "Schwarz iteration " << convergeStep + 1 << '\n';
-        std::cout << "Average abs|rel err: " << m_ae << ' ' << m_re << '\n';
+        std::cout << "Schwarz iteration " << convergeStep + 1 << "\n";
+        std::cout << "Average abs err: " << m_ae << "\n";
+        std::cout << "Average rel err: " << m_re << '\n';
 
         if ((m_re < rel_err_tol) || (m_ae < abs_err_tol)) {
             break;
@@ -798,9 +799,11 @@ public:
 #pragma omp master
 #endif
             {
-                m_re /= double(ndomains); m_ae /= double(ndomains);
+                m_re /= double(ndomains);
+                m_ae /= double(ndomains);
                 std::cout << "Schwarz iteration " << convergeStep + 1 << '\n';
-                std::cout << "Average abs|rel err: " << m_ae << ' ' << m_re << '\n';
+                std::cout << "Average abs err: " << m_ae << "\n";
+                std::cout << "Average rel err: " << m_re << "\n";
             }
 
 #if defined SCHWARZ_ENABLE_OMP

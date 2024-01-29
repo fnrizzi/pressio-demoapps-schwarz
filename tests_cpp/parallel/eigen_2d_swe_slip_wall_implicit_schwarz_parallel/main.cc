@@ -12,6 +12,11 @@ int main(int argc, char *argv[])
 
 #if defined SCHWARZ_ENABLE_THREADPOOL
     const int numthreads = parse_num_threads(argc, argv);
+    std::string dir_suffix = "_tp";
+#elif defined SCHWARZ_ENABLE_OMP
+    std::string dir_suffix = "_omp";
+# else
+    std::string dir_suffix = "";
 #endif
 
     // +++++ USER INPUTS +++++
@@ -24,13 +29,13 @@ int main(int argc, char *argv[])
     const auto order   = pda::InviscidFluxReconstruction::Weno5;
 
 #elif defined USE_WENO3
-    std::string obsRoot = "./weno3/swe_slipWall2d_solution";
-    std::string meshRoot = "./weno3/mesh";
+    std::string obsRoot = "./weno3" + dir_suffix + "/swe_slipWall2d_solution";
+    std::string meshRoot = "./weno3" + dir_suffix + "/mesh";
     const auto order   = pda::InviscidFluxReconstruction::Weno3;
 
 #else
-    std::string obsRoot = "./firstorder/swe_slipWall2d_solution";
-    std::string meshRoot = "./firstorder/mesh";
+    std::string obsRoot = "./firstorder" + dir_suffix + "/swe_slipWall2d_solution";
+    std::string meshRoot = "./firstorder" + dir_suffix + "/mesh";
     const auto order   = pda::InviscidFluxReconstruction::FirstOrder;
 #endif
     const auto scheme = pode::StepScheme::BDF1;
@@ -50,6 +55,16 @@ int main(int argc, char *argv[])
     auto subdomains = pdas::create_subdomains<app_t>(
         meshes, *tiling, probId, scheme, order, icFlag);
     pdas::SchwarzDecomp decomp(subdomains, tiling, dt);
+
+    // observers
+    using state_t = decltype(decomp)::state_t;
+    using obs_t = FomObserver<state_t>;
+    std::vector<obs_t> obsVec((*decomp.m_tiling).count());
+    for (int domIdx = 0; domIdx < (*decomp.m_tiling).count(); ++domIdx) {
+        obsVec[domIdx] = obs_t(obsRoot + "_" + std::to_string(domIdx) + ".bin", obsFreq);
+        obsVec[domIdx](::pressio::ode::StepCount(0), 0.0, *decomp.m_subdomainVec[domIdx]->getStateFull());
+    }
+    // RuntimeObserver obs_time("runtime.bin", (*tiling).count());
 
 // -----------------------------------------
 // OMP
@@ -80,30 +95,33 @@ int main(int argc, char *argv[])
         {
             std::cout << "Step " << outerStep << std::endl;
         }
-        loop(outerStep, simultime);
-        simultime += decomp.m_dtMax;
-    }
-    const auto runtimeEnd = std::chrono::high_resolution_clock::now();
-    const auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(runtimeEnd - runtimeStart);
-    const double elapsed = static_cast<double>(duration.count());
-    const double myavg = elapsed/numSteps;
-    looptime += myavg;
-}
 
-    std::cout << "looptime/thread_count (ms) = " << looptime/threadCount << '\n';
+        // execute Schwarz iteration
+        // auto runtimeStart = std::chrono::high_resolution_clock::now();
+        loop(outerStep, simultime);
+        // const auto runtimeEnd = std::chrono::high_resolution_clock::now();
+        // const auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(runtimeEnd - runtimeStart);
+        // const double elapsed = static_cast<double>(duration.count());
+
+#pragma omp barrier
+#pragma omp master
+        {
+            // output observer
+            if ((outerStep % obsFreq) == 0) {
+                const auto stepWrap = pode::StepCount(outerStep);
+                for (int domIdx = 0; domIdx < (*decomp.m_tiling).count(); ++domIdx) {
+                    obsVec[domIdx](stepWrap, time, *decomp.m_subdomainVec[domIdx]->getStateFull());
+                }
+            }
+        }
+
+    }
+}
 
 // -----------------------------------------
 // Thread pool
 // -----------------------------------------
 #elif defined SCHWARZ_ENABLE_THREADPOOL
-
-    using state_t = decltype(decomp)::state_t;
-    using obs_t = FomObserver<state_t>;
-    std::vector<obs_t> obsVec((*decomp.m_tiling).count());
-    for (int domIdx = 0; domIdx < (*decomp.m_tiling).count(); ++domIdx) {
-        obsVec[domIdx] = obs_t(obsRoot + "_" + std::to_string(domIdx) + ".bin", obsFreq);
-        obsVec[domIdx](::pressio::ode::StepCount(0), 0.0, *decomp.m_subdomainVec[domIdx]->getStateFull());
-    }
 
     // solve
     BS::thread_pool pool(numthreads);
