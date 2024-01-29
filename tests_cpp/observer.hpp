@@ -71,35 +71,22 @@ public:
     RuntimeObserver(const std::string & f0, int nDomains_in = 1)
         : timeFile_(f0, std::ios::out | std::ios::binary)
         , nDomains_(static_cast<std::size_t>(nDomains_in))
-    {
-        // 8-byte file header indicating number of domains
-        timeFile_.write(reinterpret_cast<const char*>(&nDomains_), sizeof(std::size_t));
-    }
+    {}
 
     ~RuntimeObserver() { timeFile_.close(); }
 
-    void operator() (std::vector<std::vector<double>> & runtimeVec)
+    void operator() (double runtimeVal, int itersVal)
     {
-        // runtimeVec has dimensions (nDomains, nIters)
-        // record all dimensions with header indicating number of iterations
-
-        // 8-byte record header indicating number of subiterations in this iteration
-        std::size_t niters = runtimeVec[0].size();
-        timeFile_.write(reinterpret_cast<const char*>(&niters), sizeof(std::size_t));
-
-        // unroll iterations, then domain order
-        for (int iterIdx = 0; iterIdx < niters; ++iterIdx) {
-            for (int domIdx = 0; domIdx < nDomains_; ++domIdx) {
-                timeFile_.write(reinterpret_cast<const char*>(&runtimeVec[domIdx][iterIdx]), sizeof(double));
-            }
-        }
-
+        // number of subiterations, total runtime for single outer loop iteration
+        std::size_t iters_st = static_cast<std::size_t>(itersVal);
+        timeFile_.write(reinterpret_cast<const char*>(&iters_st), sizeof(std::size_t));
+        timeFile_.write(reinterpret_cast<const char*>(&runtimeVal), sizeof(double));
     }
 
     void operator() (double runtimeVal)
     {
         // Overload for handling non-Schwarz input, have to manually time it and pass total runtime
-        // Just write it as if there's one iteration, one domain
+        // Just write it as if there's one iteration, one subiteration
         std::size_t one = static_cast<std::size_t>(1);
         timeFile_.write(reinterpret_cast<const char*>(&one), sizeof(std::size_t));
         timeFile_.write(reinterpret_cast<const char*>(&runtimeVal), sizeof(double));

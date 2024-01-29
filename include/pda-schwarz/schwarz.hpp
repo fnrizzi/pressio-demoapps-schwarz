@@ -13,7 +13,6 @@
 #include <iostream>
 #include <fstream>
 #include <sstream>
-#include <chrono>
 #include <sys/stat.h>
 #include <unistd.h>
 #include <iomanip>
@@ -54,8 +53,8 @@ using swe2d_app_type =
     );
 
 struct Errors{
-  double m_relative = {};
-  double m_absolute = {};
+    double m_relative = {};
+    double m_absolute = {};
 };
 
 enum class SchwarzMode{ Multiplicative, Additive };
@@ -694,7 +693,7 @@ private:
 
 public:
 
-    void additive_step(int outerStep, double currentTime,
+    int additive_step(int outerStep, double currentTime,
                        const double rel_err_tol, const double abs_err_tol,
                        const int convergeStepMax, BS::thread_pool & pool)
     {
@@ -745,9 +744,11 @@ public:
         pool.detach_loop<int>(0, ndomains, taskreset);
         pool.wait();
         }
+
+        return convergeStep;
     }
 
-    void additive_step(int outerStep, double currentTime,
+    int additive_step(int outerStep, double currentTime,
                        const double rel_err_tol, const double abs_err_tol,
                        const int convergeStepMax)
     {
@@ -829,10 +830,12 @@ public:
                 m_subdomainVec[domIdx]->resetStateFromHistory();
             }
         } // convergence loop
+
+        return convergeStep;
     }
 
 
-    [[nodiscard]] std::vector<std::vector<double>> calc_controller_step(
+    [[nodiscard]] int calc_controller_step(
         SchwarzMode mode,
         int outerStep,
         double currentTime,
@@ -848,25 +851,18 @@ public:
         for (int domIdx = 0; domIdx < ndomains; ++domIdx) { m_subdomainVec[domIdx]->storeStateHistory(0); }
 
         int convergeStep = 0;
-        //std::vector<std::array<double, 2>> convergeVals(ndomains);
 
-        std::vector<std::vector<double>> iterTime(ndomains);
         while (convergeStep < convergeStepMax)
         {
             Errors myerrs = {};
             std::cout << "Schwarz iteration " << convergeStep + 1 << '\n';
 
             for (int domIdx = 0; domIdx < ndomains; ++domIdx) {
-                auto runtimeStart = std::chrono::high_resolution_clock::now();
                 domainControlLoop(domIdx, currentTime, outerStep, myerrs);
 
                 // broadcast boundary conditions immediately for multiplicative Schwarz
                 if (!additive) { broadcast_bcState(domIdx); }
 
-                auto runtimeEnd = std::chrono::high_resolution_clock::now();
-                double nsElapsed = static_cast<double>
-                (std::chrono::duration_cast<std::chrono::nanoseconds>(runtimeEnd - runtimeStart).count());
-                iterTime[domIdx].emplace_back(nsElapsed * 1e-9);
             }
 
             // // check convergence for all domains, break if conditions met
@@ -892,7 +888,7 @@ public:
 
         } // convergence loop
 
-        return iterTime;
+        return convergeStep;
     }
 
 private:

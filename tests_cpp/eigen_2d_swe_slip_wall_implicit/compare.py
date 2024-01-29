@@ -24,10 +24,8 @@ if __name__== "__main__":
     # check runtime file
     f = open('runtime.bin', 'rb')
     contents = f.read()
-    assert len(contents) == 24
-    ndomains = struct.unpack('Q', contents[:8])[0]
-    assert ndomains == 1
-    niters = struct.unpack('Q', contents[8:16])[0]
+    assert len(contents) == 16
+    niters = struct.unpack('Q', contents[:8])[0]
     assert niters == 1
-    timeval = struct.unpack('d', contents[16:24])[0]
+    timeval = struct.unpack('d', contents[8:16])[0]
     assert timeval > 0.0
