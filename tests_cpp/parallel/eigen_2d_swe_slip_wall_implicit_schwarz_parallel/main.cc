@@ -1,4 +1,4 @@
-
+#include <chrono>
 #include "pressiodemoapps/swe2d.hpp"
 #include "pda-schwarz/schwarz.hpp"
 #include "../../observer.hpp"
@@ -27,17 +27,16 @@ int main(int argc, char *argv[])
 #ifdef USE_WENO5
     static_assert(false);
     const auto order   = pda::InviscidFluxReconstruction::Weno5;
-
 #elif defined USE_WENO3
-    std::string obsRoot = "./weno3" + dir_suffix + "/swe_slipWall2d_solution";
-    std::string meshRoot = "./weno3" + dir_suffix + "/mesh";
+    std::string outRoot = "./weno3" + dir_suffix;
     const auto order   = pda::InviscidFluxReconstruction::Weno3;
-
 #else
-    std::string obsRoot = "./firstorder" + dir_suffix + "/swe_slipWall2d_solution";
-    std::string meshRoot = "./firstorder" + dir_suffix + "/mesh";
+    std::string outRoot = "./firstorder" + dir_suffix;
     const auto order   = pda::InviscidFluxReconstruction::FirstOrder;
 #endif
+    std::string obsRoot = outRoot + "/swe_slipWall2d_solution";
+    std::string meshRoot = outRoot + "/mesh";
+
     const auto scheme = pode::StepScheme::BDF1;
     const int icFlag = 1;
     using app_t = pdas::swe2d_app_type;
@@ -64,7 +63,7 @@ int main(int argc, char *argv[])
         obsVec[domIdx] = obs_t(obsRoot + "_" + std::to_string(domIdx) + ".bin", obsFreq);
         obsVec[domIdx](::pressio::ode::StepCount(0), 0.0, *decomp.m_subdomainVec[domIdx]->getStateFull());
     }
-    // RuntimeObserver obs_time("runtime.bin", (*tiling).count());
+    RuntimeObserver obs_time(outRoot + "/runtime.bin");
 
 // -----------------------------------------
 // OMP
@@ -72,22 +71,16 @@ int main(int argc, char *argv[])
 #if defined SCHWARZ_ENABLE_OMP
 
     const int numSteps = tf / decomp.m_dtMax;
-    double looptime = 0.;
-    int numth = 0;
-    int threadCount = 0;
+    std::chrono::time_point<std::chrono::high_resolution_clock> runtimeStart;
+    double secsElapsed;
 
-#pragma omp parallel firstprivate(numSteps, rel_err_tol, abs_err_tol, convergeStepMax) reduction (+ : looptime)
+#pragma omp parallel firstprivate(numSteps, rel_err_tol, abs_err_tol, convergeStepMax)
 {
-#pragma omp single
-    {
-        threadCount = omp_get_num_threads();
-    }
 
-    auto loop = [&](int outerStep, double simultime){
-        decomp.additive_step(outerStep, simultime, rel_err_tol, abs_err_tol, convergeStepMax);
-    };
+    // auto loop = [&](int outerStep, double simultime){
+    //     decomp.additive_step(outerStep, simultime, rel_err_tol, abs_err_tol, convergeStepMax);
+    // };
 
-    auto runtimeStart = std::chrono::high_resolution_clock::now();
     double simultime = 0.0;
     for (int outerStep = 1; outerStep <= numSteps; ++outerStep)
     {
@@ -97,11 +90,21 @@ int main(int argc, char *argv[])
         }
 
         // execute Schwarz iteration
-        // auto runtimeStart = std::chrono::high_resolution_clock::now();
-        loop(outerStep, simultime);
-        // const auto runtimeEnd = std::chrono::high_resolution_clock::now();
-        // const auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(runtimeEnd - runtimeStart);
-        // const double elapsed = static_cast<double>(duration.count());
+        // loop(outerStep, simultime);
+
+#pragma omp barrier
+#pragma omp master
+        {
+            auto runtimeStart = std::chrono::high_resolution_clock::now();
+        }
+        auto numSubiters = decomp.additive_step(outerStep, simultime, rel_err_tol, abs_err_tol, convergeStepMax);
+#pragma omp barrier
+#pragma omp master
+        {
+            const auto runtimeEnd = std::chrono::high_resolution_clock::now();
+            const auto nsDuration = std::chrono::duration_cast<std::chrono::nanoseconds>(runtimeEnd - runtimeStart);
+            secsElapsed = static_cast<double>(nsDuration.count());
+        }
 
 #pragma omp barrier
 #pragma omp master
@@ -113,6 +116,7 @@ int main(int argc, char *argv[])
                     obsVec[domIdx](stepWrap, time, *decomp.m_subdomainVec[domIdx]->getStateFull());
                 }
             }
+            obs_time(secsElapsed, numSubiters);
         }
 
     }
@@ -132,8 +136,12 @@ int main(int argc, char *argv[])
         std::cout << "Step " << outerStep << std::endl;
 
         // compute contoller step until convergence
-        decomp.additive_step(outerStep, time, rel_err_tol,
+        auto runtimeStart = std::chrono::high_resolution_clock::now();
+        auto numSubiters = decomp.additive_step(outerStep, time, rel_err_tol,
                              abs_err_tol, convergeStepMax, pool);
+        const auto runtimeEnd = std::chrono::high_resolution_clock::now();
+        const auto nsDuration = std::chrono::duration_cast<std::chrono::nanoseconds>(runtimeEnd - runtimeStart);
+        const double secsElapsed = static_cast<double>(nsDuration.count()) * 1e-9;
 
         time += decomp.m_dtMax;
 
@@ -144,6 +152,7 @@ int main(int argc, char *argv[])
                 obsVec[domIdx](stepWrap, time, *decomp.m_subdomainVec[domIdx]->getStateFull());
             }
         }
+        obs_time(secsElapsed, numSubiters);
     }
 
 #endif

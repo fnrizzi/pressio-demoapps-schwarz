@@ -68,9 +68,8 @@ private:
 class RuntimeObserver
 {
 public:
-    RuntimeObserver(const std::string & f0, int nDomains_in = 1)
+    RuntimeObserver(const std::string & f0)
         : timeFile_(f0, std::ios::out | std::ios::binary)
-        , nDomains_(static_cast<std::size_t>(nDomains_in))
     {}
 
     ~RuntimeObserver() { timeFile_.close(); }
@@ -94,7 +93,6 @@ public:
 
 private:
     std::ofstream timeFile_;
-    std::size_t nDomains_;
 };
 
 #endif

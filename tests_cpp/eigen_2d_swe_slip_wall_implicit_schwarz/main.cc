@@ -53,7 +53,7 @@ int main()
         obsVec[domIdx](::pressio::ode::StepCount(0), 0.0, *decomp.m_subdomainVec[domIdx]->getStateFull());
     }
 
-    RuntimeObserver obs_time("runtime.bin", (*tiling).count());
+    RuntimeObserver obs_time("runtime.bin");
 
     // solve
     const int numSteps = tf / decomp.m_dtMax;
