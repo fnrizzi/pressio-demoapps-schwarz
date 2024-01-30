@@ -1,3 +1,5 @@
+configure_file(../gen_trial_space.py gen_trial_space.py COPYONLY)
+configure_file(../gen_sample_mesh.py gen_sample_mesh.py COPYONLY)
 
 list(APPEND CASES firstorder)
 list(APPEND SSIZES 3)
@@ -11,7 +13,7 @@ foreach(case ss IN ZIP_LISTS CASES SSIZES)
   set(TESTDIR ${CMAKE_CURRENT_BINARY_DIR}/${case})
 
   message(STATUS ${case})
-  set(testname eigen_2d_swe_slip_wall_${case}_implicit_schwarz_parallel)
+  set(testname eigen_2d_swe_slip_wall_${case}_implicit_lspg_hyper_schwarz_parallel)
 
   configure_file(compare.py compare.py COPYONLY)
 

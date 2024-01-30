@@ -15,7 +15,7 @@ int main(int argc, char *argv[])
     std::string dir_suffix = "_tp";
 #elif defined SCHWARZ_ENABLE_OMP
     std::string dir_suffix = "_omp";
-# else
+#else
     std::string dir_suffix = "";
 #endif
 
@@ -77,10 +77,6 @@ int main(int argc, char *argv[])
 #pragma omp parallel firstprivate(numSteps, rel_err_tol, abs_err_tol, convergeStepMax)
 {
 
-    // auto loop = [&](int outerStep, double simultime){
-    //     decomp.additive_step(outerStep, simultime, rel_err_tol, abs_err_tol, convergeStepMax);
-    // };
-
     double simultime = 0.0;
     for (int outerStep = 1; outerStep <= numSteps; ++outerStep)
     {
@@ -88,9 +84,6 @@ int main(int argc, char *argv[])
         {
             std::cout << "Step " << outerStep << std::endl;
         }
-
-        // execute Schwarz iteration
-        // loop(outerStep, simultime);
 
 #pragma omp barrier
 #pragma omp master
@@ -105,6 +98,7 @@ int main(int argc, char *argv[])
             const auto nsDuration = std::chrono::duration_cast<std::chrono::nanoseconds>(runtimeEnd - runtimeStart);
             secsElapsed = static_cast<double>(nsDuration.count());
         }
+        simultime += decomp.m_dtMax;
 
 #pragma omp barrier
 #pragma omp master

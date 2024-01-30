@@ -1,4 +1,5 @@
 import os
+import re
 
 from pdas.vis_utils import plot_contours
 
@@ -13,6 +14,10 @@ varplot = 0
 
 exe_dir = os.path.dirname(os.path.realpath(__file__))
 order = os.path.basename(os.path.normpath(exe_dir))
+
+# strip tail
+order = re.sub('_tp', '', order)
+order = re.sub('_omp', '', order)
 
 if varplot == 0:
     varlabel = r"Height"
